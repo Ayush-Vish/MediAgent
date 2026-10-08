@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     hospital_id: str = 'cmc-vellore'
     hospital_portal_url: str = ''
     public_url: str = 'http://localhost:8000'
+    cors_origins: str = ''
     admin_token: str = ''
     supabase_url: str = ''
     supabase_anon_key: str = ''

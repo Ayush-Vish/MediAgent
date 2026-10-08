@@ -1,5 +1,12 @@
 import type { NextConfig } from "next";
 
+const backendUrl =
+  process.env.BACKEND_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  (process.env.NODE_ENV === "development"
+    ? "http://127.0.0.1:8000"
+    : "https://mediagent-yb4r.onrender.com");
+
 const nextConfig: NextConfig = {
   turbopack: {
     rules: {
@@ -13,7 +20,7 @@ const nextConfig: NextConfig = {
     return [
       {
         source: "/api/:path*",
-        destination: "http://127.0.0.1:8000/api/:path*",
+        destination: `${backendUrl.replace(/\/$/, "")}/api/:path*`,
       },
     ];
   },

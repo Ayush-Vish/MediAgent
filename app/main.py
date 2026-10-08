@@ -72,6 +72,12 @@ def create_app(settings=None):
         origin = request.headers.get('origin')
         expected = urlsplit(settings.public_url)
         allowed_origins = {f'{expected.scheme}://{expected.netloc}'}
+        if getattr(settings, 'cors_origins', ''):
+            for item in settings.cors_origins.split(','):
+                item = item.strip().rstrip('/')
+                if item:
+                    allowed_origins.add(item)
+        allowed_origins.add('https://frontend-eosin-eight-12.vercel.app')
         if settings.environment == 'local':
             allowed_origins.update({
                 'http://localhost:8000',
@@ -82,8 +88,24 @@ def create_app(settings=None):
                 'http://127.0.0.1:3001',
             })
 
+        def is_origin_allowed(orig: str | None) -> bool:
+            if not orig:
+                return False
+            if orig in allowed_origins:
+                return True
+            try:
+                parsed = urlsplit(orig)
+                if parsed.scheme in {'http', 'https'} and parsed.hostname:
+                    if parsed.hostname == 'frontend-eosin-eight-12.vercel.app':
+                        return True
+                    if parsed.hostname.endswith('.vercel.app') and ('frontend' in parsed.hostname or 'mediagent' in parsed.hostname):
+                        return True
+            except Exception:
+                pass
+            return False
+
         if request.method == 'OPTIONS':
-            if origin and origin in allowed_origins:
+            if origin and is_origin_allowed(origin):
                 return Response(
                     status_code=204,
                     headers={
@@ -96,14 +118,14 @@ def create_app(settings=None):
             return Response(status_code=403)
 
         if request.method in {'POST', 'PATCH', 'DELETE'}:
-            if origin and origin not in allowed_origins:
+            if origin and not is_origin_allowed(origin):
                 return JSONResponse({'error': 'Origin not allowed'}, status_code=403)
             body = await request.body()
             if len(body) > 100_000:
                 return JSONResponse({'error': 'Request too large'}, status_code=413)
 
         response = await call_next(request)
-        if origin and origin in allowed_origins:
+        if origin and is_origin_allowed(origin):
             response.headers['Access-Control-Allow-Origin'] = origin
             response.headers['Access-Control-Allow-Credentials'] = 'true'
         response.headers['X-Content-Type-Options'] = 'nosniff'
@@ -215,7 +237,8 @@ def create_app(settings=None):
             except LookupError:
                 pass
         token = service.create_session()
-        response.set_cookie('mediagent_session', token, httponly=True, samesite='strict',
+        cookie_samesite = 'none' if settings.environment == 'cloud' else 'lax'
+        response.set_cookie('mediagent_session', token, httponly=True, samesite=cookie_samesite,
                             secure=settings.environment == 'cloud', max_age=settings.retention_hours * 3600)
         return {'turns': [], 'reviews': []}
 
@@ -291,7 +314,8 @@ def create_app(settings=None):
             if not auth_res:
                 raise HTTPException(500, 'Authentication error after registration.')
             token, safe_user = auth_res
-            response.set_cookie('mediagent_auth', token, httponly=True, samesite='lax',
+            cookie_samesite = 'none' if settings.environment == 'cloud' else 'lax'
+            response.set_cookie('mediagent_auth', token, httponly=True, samesite=cookie_samesite,
                                 secure=settings.environment == 'cloud', max_age=30 * 86400)
             return {'token': token, 'user': safe_user}
         except ValueError as error:
@@ -303,7 +327,8 @@ def create_app(settings=None):
         if not auth_res:
             raise HTTPException(401, 'Invalid email or password.')
         token, safe_user = auth_res
-        response.set_cookie('mediagent_auth', token, httponly=True, samesite='lax',
+        cookie_samesite = 'none' if settings.environment == 'cloud' else 'lax'
+        response.set_cookie('mediagent_auth', token, httponly=True, samesite=cookie_samesite,
                             secure=settings.environment == 'cloud', max_age=30 * 86400)
         return {'token': token, 'user': safe_user}
 

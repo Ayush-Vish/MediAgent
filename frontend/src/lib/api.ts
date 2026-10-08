@@ -12,7 +12,7 @@ import {
 import { z } from "zod";
 import { readSSE } from "@/lib/sse";
 
-const BASE_URL = "";
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
 
 async function request<T>(
   path: string,
@@ -26,7 +26,7 @@ async function request<T>(
   const response = await fetch(`${BASE_URL}${path}`, {
     ...options,
     headers,
-    credentials: "same-origin",
+    credentials: "include",
   });
 
   const isJson = response.headers.get("content-type")?.includes("application/json");
@@ -94,9 +94,9 @@ export const authApi = {
 // ----------------- Chat & Session API -----------------
 export const chatApi = {
   async streamMessage(message: string, requestId: string, onDraft: (text: string) => void, signal?: AbortSignal): Promise<ChatAnswer> {
-    const response = await fetch("/api/chat/stream", {
+    const response = await fetch(`${BASE_URL}/api/chat/stream`, {
       method: "POST", headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-      credentials: "same-origin", body: JSON.stringify({ message, request_id: requestId }), signal,
+      credentials: "include", body: JSON.stringify({ message, request_id: requestId }), signal,
     });
     if (!response.ok) {
       const data = await response.json().catch(() => null);
