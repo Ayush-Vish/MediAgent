@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>MediAgent · Hospital assistant</title>
+  <link rel="stylesheet" href="/static/chat.css">
+  <script type="module" src="/static/chat.js"></script>
+</head>
+<body data-theme="dark">
+<svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <defs>
+    <symbol id="panel" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></symbol>
+    <symbol id="edit" viewBox="0 0 24 24"><path d="M12 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6M15 4l5 5M10 14l-1 4 4-1 8-8a2 2 0 0 0-5-5Z"/></symbol>
+    <symbol id="arrow" viewBox="0 0 24 24"><path d="M12 19V5m-6 6 6-6 6 6"/></symbol>
+    <symbol id="external" viewBox="0 0 24 24"><path d="M14 4h6v6m0-6L10 14M10 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></symbol>
+    <symbol id="chat" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 1-8 8H5l-3 3V11a9 9 0 0 1 18 0Z"/></symbol>
+    <symbol id="heart" viewBox="0 0 24 24"><path d="M20 5a5 5 0 0 0-8 1 5 5 0 0 0-8-1c-4 4 0 9 8 15 8-6 12-11 8-15Z"/></symbol>
+    <symbol id="calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M7 3v4m10-4v4M3 11h18m-13 4h2m4 0h2"/></symbol>
+    <symbol id="document" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Zm0 0v6h6M8 13h8m-8 4h5"/></symbol>
+    <symbol id="headset" viewBox="0 0 24 24"><path d="M4 13v-2a8 8 0 0 1 16 0v6a4 4 0 0 1-4 4h-3"/><rect x="2" y="11" width="4" height="7" rx="2"/><rect x="18" y="11" width="4" height="7" rx="2"/></symbol>
+    <symbol id="refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M5 7a8 8 0 0 1 13-2l2 3M4 16l2 3a8 8 0 0 0 13-2"/></symbol>
+    <symbol id="sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1 1m12 12 1 1M5 19l1-1M18 6l1-1"/></symbol>
+    <symbol id="shield" viewBox="0 0 24 24"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6Zm-4 9 3 3 5-6"/></symbol>
+    <symbol id="copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></symbol>
+    <symbol id="user" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+    <symbol id="history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></symbol>
+  </defs>
+</svg>
+<button id="sidebar-backdrop" class="sidebar-backdrop" aria-label="Close navigation" hidden></button>
+<div class="layout">
+  <aside id="sidebar" class="sidebar" aria-label="Main navigation">
+    <div class="sidebar-header">
+      <a class="brand" href="/" aria-label="MediAgent home"><span class="brand-mark">m<span>+</span></span></a>
+      <button id="sidebar-close" class="icon-button" aria-label="Close sidebar" title="Close sidebar"><svg><use href="#panel"/></svg></button>
+    </div>
+    <nav class="primary-nav" aria-label="Chat actions">
+      <button id="reset-button" class="nav-item"><svg><use href="#edit"/></svg><span>New chat</span></button>
+      <button id="nav-symptom-history" class="nav-item" hidden><svg><use href="#history"/></svg><span>Doctor Symptom Summary</span></button>
+      <button id="nav-auth" class="nav-item"><svg><use href="#user"/></svg><span id="nav-auth-label">Sign in / Register</span></button>
+      <a id="portal-link" class="nav-item" href="https://www.cmcvellore.ac.in/patient-portal/" target="_blank" rel="noopener noreferrer"><svg><use href="#external"/></svg><span>Hospital portal</span></a>
+      <button id="review-button" class="nav-item"><svg><use href="#headset"/></svg><span>Request demo review</span></button>
+      <button id="status-button" class="nav-item"><svg><use href="#refresh"/></svg><span>Check staff reply</span></button>
+    </nav>
+    <div class="sidebar-section">
+      <h2>Your conversation</h2>
+      <button id="current-chat" class="nav-item current-chat"><svg><use href="#chat"/></svg><span id="chat-title">New conversation</span><span class="live-dot"></span></button>
+      <p class="history-note">One private session. Starting a new chat clears the current active conversation.</p>
+    </div>
+    <div class="sidebar-bottom">
+      <div class="privacy-note"><svg><use href="#shield"/></svg><p>Emergency identification active.<br><span>Logged-in profile is shared with staff in emergency alerts.</span></p></div>
+      <button id="theme-button" class="nav-item"><svg><use href="#sun"/></svg><span id="theme-label">Light appearance</span></button>
+      <a class="nav-item" href="/staff"><svg><use href="#headset"/></svg><span>Staff workspace</span><svg class="trailing-icon"><use href="#external"/></svg></a>
+      <div class="hospital-account"><span class="hospital-avatar">+</span><div><strong data-hospital>CMC Vellore</strong><small>Independent information demo</small></div><span class="demo-badge">Demo</span></div>
+    </div>
+  </aside>
+  <main class="main" id="main">
+    <header class="topbar">
+      <div class="topbar-left">
+        <button id="sidebar-open" class="icon-button" aria-controls="sidebar" aria-expanded="true" aria-label="Open sidebar" title="Open sidebar"><svg><use href="#panel"/></svg></button>
+        <span class="product-name">MediAgent</span>
+        <span class="header-caption">Hospital assistant</span>
+      </div>
+      <div class="topbar-right">
+        <button id="symptom-history-btn" class="topbar-action-button" hidden title="Doctor Appointment Symptom History"><svg class="btn-icon"><use href="#history"/></svg><span>Doctor Summary</span></button>
+        <button id="auth-button" class="topbar-action-button auth-btn" title="Sign in or create account"><svg class="btn-icon"><use href="#user"/></svg><span id="auth-label">Sign in</span></button>
+        <a href="/staff" class="staff-top-button" target="_blank" title="Open Staff Triage Portal"><svg style="width:14px;height:14px;display:inline-block;vertical-align:middle;margin-right:4px;"><use href="#headset"/></svg>Staff Portal ↗</a>
+        <button id="header-new-chat" class="icon-button" aria-label="Start new chat" title="New chat"><svg><use href="#edit"/></svg></button>
+      </div>
+    </header>
+    <div class="content" id="chat-scroll">
+      <section id="welcome" class="welcome">
+        <div class="welcome-mark">m<span>+</span></div>
+        <h1>How can I help you today?</h1>
+        <p>Verified health guidance, emergency escalation, and symptom tracking for your next hospital visit.</p>
+      </section>
+      <section id="conversation" class="conversation" aria-label="Conversation" aria-live="polite" aria-relevant="additions"></section>
+    </div>
+    <div class="composer-area">
+      <div id="feedback" class="feedback" role="status"></div>
+      <form id="chat-form" class="composer">
+        <label class="sr-only" for="message">Your hospital question</label>
+        <textarea id="message" name="message" rows="2" maxlength="2000" placeholder="Message MediAgent (e.g. describe symptoms or ask hospital queries)" required></textarea>
+        <div class="composer-toolbar"><span class="composer-context"><svg><use href="#heart"/></svg>Hospital &amp; health guidance</span><button id="send-button" type="submit" aria-label="Send message" title="Send message" disabled><svg><use href="#arrow"/></svg><span class="loading-dot" hidden></span></button></div>
+      </form>
+      <div class="starter-prompts" id="starter-prompts">
+        <button data-prompt="How can I book an appointment?"><svg class="mint"><use href="#calendar"/></svg>Book an appointment</button>
+        <button data-prompt="What documents should I bring for an appointment?"><svg class="blue"><use href="#document"/></svg>Prepare for a visit</button>
+        <button data-prompt="What are the patient helpdesk contact hours?"><svg class="purple"><use href="#headset"/></svg>Contact the hospital</button>
+        <button data-prompt="What is general cough education?"><svg class="rose"><use href="#heart"/></svg>Health information</button>
+        <button data-prompt="What is the difference between paracetamol and Dolo?"><svg class="amber"><use href="#document"/></svg>Medicine basics</button>
+      </div>
+      <p class="disclaimer">Independent demo, not affiliated with CMC Vellore. For urgent symptoms, seek emergency care.</p>
+    </div>
+  </main>
+</div>
+
+<!-- Patient Auth Modal -->
+<div id="auth-modal" class="modal-overlay" hidden>
+  <div class="modal-card">
+    <div class="modal-header">
+      <h2 id="auth-modal-title">Patient Portal Access</h2>
+      <button id="auth-modal-close" class="modal-close-btn" aria-label="Close dialog">&times;</button>
+    </div>
+    <div class="modal-tabs">
+      <button id="tab-login" class="tab-btn active" type="button">Sign In</button>
+      <button id="tab-register" class="tab-btn" type="button">Register New Patient</button>
+    </div>
+    <div id="auth-feedback" class="feedback" role="status"></div>
+
+    <!-- Login Form -->
+    <form id="login-modal-form" class="auth-form">
+      <div class="form-group">
+        <label for="login-email">Email Address</label>
+        <input id="login-email" type="email" required autocomplete="username" placeholder="e.g. patient@example.com">
+      </div>
+      <div class="form-group">
+        <label for="login-password">Password</label>
+        <input id="login-password" type="password" required autocomplete="current-password" placeholder="••••••••">
+      </div>
+      <button class="primary-modal-btn" type="submit">Sign In</button>
+    </form>
+
+    <!-- Register Form -->
+    <form id="register-modal-form" class="auth-form" hidden>
+      <div class="form-grid-2">
+        <div class="form-group">
+          <label for="reg-name">Full Name *</label>
+          <input id="reg-name" type="text" required placeholder="e.g. Ramesh Kumar">
+        </div>
+        <div class="form-group">
+          <label for="reg-email">Email Address *</label>
+          <input id="reg-email" type="email" required placeholder="ramesh@example.com">
+        </div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group">
+          <label for="reg-password">Password (min 6 chars) *</label>
+          <input id="reg-password" type="password" required minlength="6" placeholder="••••••••">
+        </div>
+        <div class="form-group">
+          <label for="reg-phone">Phone Number *</label>
+          <input id="reg-phone" type="tel" required placeholder="+91 98765 43210">
+        </div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group">
+          <label for="reg-age">Age</label>
+          <input id="reg-age" type="number" min="0" max="130" placeholder="e.g. 45">
+        </div>
+        <div class="form-group">
+          <label for="reg-gender">Gender</label>
+          <select id="reg-gender">
+            <option value="">Select...</option>
+            <option value="Male">Male</option>
+            <option value="Female">Female</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+      </div>
+      <div class="emergency-contact-box">
+        <h3>🚨 Emergency Contact Details (for urgent alerts)</h3>
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label for="reg-em-contact">Emergency Contact Name &amp; Relation</label>
+            <input id="reg-em-contact" type="text" placeholder="e.g. Sunita Kumar (Wife)">
+          </div>
+          <div class="form-group">
+            <label for="reg-em-phone">Emergency Contact Phone</label>
+            <input id="reg-em-phone" type="tel" placeholder="+91 91234 56789">
+          </div>
+        </div>
+      </div>
+      <button class="primary-modal-btn" type="submit">Create Patient Profile &amp; Sign In</button>
+    </form>
+  </div>
+</div>
+
+<!-- Doctor Symptom History / Appointment Prep Modal -->
+<div id="symptom-history-modal" class="modal-overlay" hidden>
+  <div class="modal-card modal-large">
+    <div class="modal-header">
+      <div>
+        <h2>Doctor Appointment Prep · Symptom History</h2>
+        <p class="modal-subtitle">Comprehensive chronological record of your reported symptoms &amp; clinical triage.</p>
+      </div>
+      <button id="history-modal-close" class="modal-close-btn" aria-label="Close dialog">&times;</button>
+    </div>
+
+    <!-- Interval Selector Bar -->
+    <div class="history-controls">
+      <span class="control-label">Time Interval:</span>
+      <div class="interval-pills" id="interval-pills">
+        <button class="pill" data-days="7">Past 7 Days</button>
+        <button class="pill" data-days="14">Past 14 Days</button>
+        <button class="pill active" data-days="30">Past 30 Days</button>
+        <button class="pill" data-days="90">Past 90 Days</button>
+        <button class="pill" data-days="0">All Time</button>
+      </div>
+      <button id="copy-summary-btn" class="action-btn copy-btn"><svg style="width:14px;height:14px;display:inline-block;vertical-align:middle;margin-right:4px;"><use href="#copy"/></svg>Copy Clinical Summary for Doctor</button>
+    </div>
+
+    <!-- Clinical Overview Cards -->
+    <div class="summary-dashboard">
+      <div class="dash-card">
+        <span class="dash-label">Patient</span>
+        <strong id="dash-patient-name">—</strong>
+        <small id="dash-patient-details"></small>
+      </div>
+      <div class="dash-card">
+        <span class="dash-label">Consultations</span>
+        <strong id="dash-event-count">0</strong>
+        <small id="dash-interval-label">Past 30 days</small>
+      </div>
+      <div class="dash-card">
+        <span class="dash-label">Peak Severity</span>
+        <div id="dash-peak-badge" class="severity-pill general">General</div>
+      </div>
+      <div class="dash-card">
+        <span class="dash-label">Clinical Trajectory</span>
+        <strong id="dash-progression" class="progression-text">—</strong>
+      </div>
+    </div>
+
+    <!-- Timeline Container -->
+    <div class="timeline-container">
+      <h3>Chronological Symptom Progression</h3>
+      <div id="timeline-list" class="timeline-list">
+        <div class="empty-state">Loading symptom history…</div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

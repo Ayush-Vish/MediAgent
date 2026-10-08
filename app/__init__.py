@@ -1,0 +1,1 @@
+"""MediAgent hospital information assistant."""

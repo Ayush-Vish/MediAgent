@@ -1,0 +1,2 @@
+-r requirements-rag.txt
+docling>=2.25,<3

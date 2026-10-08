@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>MediAgent · Staff &amp; Doctor workspace</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script type="module" src="/static/staff.js"></script>
+</head>
+<body>
+<main class="staff-main">
+  <header class="staff-header">
+    <a href="/" class="brand"><span class="brand-icon">✳</span>MediAgent<span class="brand-dot">.</span></a>
+    <a href="/" class="staff-link">Back to patient chat ↗</a>
+  </header>
+  <h1 class="staff-title">The clinical triage &amp; staff workspace.</h1>
+  <p class="staff-note">Monitor emergency alerts with patient identity, review symptom history over time intervals for doctor appointments, and manage knowledge sources.</p>
+  <div id="feedback" class="feedback" role="status"></div>
+
+  <section id="login-panel" class="panel">
+    <h2>Staff sign-in</h2>
+    <form id="login-form">
+      <div id="cloud-fields" class="form-grid">
+        <label>Email<input id="email" type="email" autocomplete="username"></label>
+        <label>Password<input id="password" type="password" autocomplete="current-password"></label>
+      </div>
+      <label id="local-field" hidden>Local admin token (auto-configured for instant access)<input id="local-token" type="text" autocomplete="off"></label>
+      <button class="primary-button" type="submit">Open workspace →</button>
+    </form>
+    <p class="staff-note">In local demo mode, the workspace connects automatically without requiring manual login.</p>
+  </section>
+
+  <div id="workspace" hidden>
+    <div class="staff-toolbar">
+      <span class="muted">Triage alerts, doctor appointment prep &amp; public sources</span>
+      <button id="logout" class="subtle-button">Sign out</button>
+    </div>
+
+    <!-- Review & Emergency Queue -->
+    <section class="panel">
+      <div class="staff-toolbar">
+        <h2>Emergency Triage &amp; Review Queue</h2>
+        <button id="refresh" class="subtle-button">Refresh</button>
+      </div>
+      <p class="staff-note">Alerts display full patient identity and emergency contact details for urgent intervention.</p>
+      <div id="reviews"></div>
+    </section>
+
+    <!-- Doctor Appointment Prep & Symptom Timeline -->
+    <section class="panel" id="doctor-panel">
+      <div class="staff-toolbar">
+        <h2>Doctor Consultation Prep · Patient Symptom Timeline</h2>
+      </div>
+      <p class="staff-note">Inspect what symptoms the patient has gone through across any time interval before taking an appointment.</p>
+      <div class="form-grid" style="align-items:flex-end;">
+        <label>Select registered patient
+          <select id="patient-select">
+            <option value="">-- Choose patient --</option>
+          </select>
+        </label>
+        <label>Or enter patient email
+          <input id="patient-email-search" type="email" placeholder="patient@example.com">
+        </label>
+        <label>Time interval
+          <select id="patient-interval-select">
+            <option value="7">Past 7 days</option>
+            <option value="14">Past 14 days</option>
+            <option value="30" selected>Past 30 days</option>
+            <option value="90">Past 90 days</option>
+            <option value="0">All time</option>
+          </select>
+        </label>
+        <div>
+          <button id="load-patient-summary-btn" class="primary-button" type="button" style="width:100%;">View Clinical Timeline</button>
+        </div>
+      </div>
+      <div id="doctor-patient-summary"></div>
+    </section>
+
+    <!-- Knowledge Sources -->
+    <section class="panel">
+      <h2>Knowledge sources</h2>
+      <p class="staff-note">New and changed sources require approval. Dates older than the configured freshness limit are excluded from answers.</p>
+      <div id="sources"></div>
+    </section>
+
+    <!-- Add or revise public source -->
+    <section class="panel">
+      <h2>Add or revise a public source</h2>
+      <form id="source-form" class="form-grid">
+        <label>Title<input name="title" required minlength="3" maxlength="180"></label>
+        <label>Official HTTPS source URL<input name="url" type="url" required></label>
+        <label>Category
+          <select name="category">
+            <option value="hospital">Hospital information</option>
+            <option value="health">Health education</option>
+          </select>
+        </label>
+        <label>Date checked<input name="checked_at" type="date" required></label>
+        <label class="full-width">Verified public text<textarea name="text" rows="6" minlength="30" maxlength="60000" required></textarea></label>
+        <label class="inline-check full-width"><input type="checkbox" name="conflict">Conflicting information found — exclude this source until resolved</label>
+        <div class="full-width"><button class="primary-button" type="submit">Save for review</button></div>
+      </form>
+    </section>
+  </div>
+</main>
+</body>
+</html>
