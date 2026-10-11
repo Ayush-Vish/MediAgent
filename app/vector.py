@@ -9,6 +9,7 @@ Implements the two-phase pipeline from the architecture specification:
 from __future__ import annotations
 
 import logging
+from urllib.parse import urlsplit
 from app.observability import traced, span, event
 from dataclasses import asdict
 from typing import Any
@@ -31,15 +32,23 @@ class HybridIndex:
     def __init__(self, settings, client=None):
         from fastembed import SparseTextEmbedding, TextEmbedding
         self.settings = settings
+        host = None
         if client:
             self.client = client
+            backend = 'injected'
         elif settings.qdrant_url:
             self.client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key or None, timeout=10)
+            host = urlsplit(settings.qdrant_url).hostname
+            backend = 'cloud' if host and host.endswith('.cloud.qdrant.io') else 'remote'
         elif settings.qdrant_path:
             self.client = QdrantClient(path=str(ROOT / settings.qdrant_path))
+            backend = 'local_disk'
         else:
             # Local in-memory or on-disk fallback when no remote Qdrant URL is configured
             self.client = QdrantClient(':memory:')
+            backend = 'memory'
+        event('vector.connection', backend=backend, host=host,
+              collection=settings.qdrant_collection)
 
         self.dense = TextEmbedding(DENSE_MODEL, threads=1)
         self.sparse = SparseTextEmbedding(SPARSE_MODEL, threads=1)

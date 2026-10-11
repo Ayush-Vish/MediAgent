@@ -1,5 +1,5 @@
 FROM python:3.12-slim
-ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PORT=8000
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PORT=8000 LOG_SHOW_QUERY=true LOG_SHOW_CHUNKS=true
 WORKDIR /app
 COPY requirements.txt requirements-rag.txt ./
 RUN pip install --no-cache-dir -r requirements-rag.txt
