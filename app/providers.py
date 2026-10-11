@@ -312,7 +312,7 @@ def _public_query(query):
 
 def _recent_context(context):
     return [{'role': item['role'], 'text': _public_query(item['text'])}
-            for item in (context or [])[-3:]
+            for item in (context or [])[-6:]
             if item.get('role') in {'user', 'assistant', 'staff'} and isinstance(item.get('text'), str)]
 
 

@@ -92,13 +92,17 @@ class ChatGraph:
         severity_dict = {'level': severity.level, 'confidence': severity.confidence,
                          'summary': severity.summary}
 
+        # Context inspection
+        context = state.get('context', [])
+        previous_user_msg = next((m['text'] for m in reversed(context) if m.get('role') == 'user'), None)
+
         # Topic detection
         is_hinglish_request = bool(re.search(r'\b(hinglish|hindi|hindi me|hinglish me|hindi mein|hinglish mein|samjhao|batao|anuvad|translate)\b', normalize(query)))
+        is_followup = bool(re.search(r'\b(he|she|him|her|it|this|that|problem|facing|happen|cause|causes|why|what is|meaning|mean)\b', normalize(query)))
+
         topic = topic_for(query)
-        if not topic and (is_hinglish_request or normalize(query) in {'tell me more', 'more', 'and then', 'what next'}):
-            topic = state.get('previous_topic')
-            if topic:
-                query = TOPICS[topic][1]
+        if not topic and (is_hinglish_request or is_followup or normalize(query) in {'tell me more', 'more', 'and then', 'what next'}):
+            topic = state.get('previous_topic') or (topic_for(previous_user_msg) if previous_user_msg else None)
 
         # Category determination
         if topic in ('appointment', 'preparation', 'contact', 'insurance', 'campus', 'changes'):
@@ -118,6 +122,7 @@ class ChatGraph:
             'guard_decision': guard_decision,
             'is_greeting': is_greeting,
             'is_human_request': is_human_request,
+            'context': context,
         }
 
     @traced('context.retrieval')
@@ -126,7 +131,13 @@ class ChatGraph:
         if state.get('guard_decision') or state.get('is_greeting') or state.get('is_human_request'):
             return {'sources': [], 'mode': 'local'}
 
-        sources, mode = self.knowledge.search(state['query'], state['category'])
+        search_query = state['query']
+        context = state.get('context', [])
+        previous_user_msg = next((m['text'] for m in reversed(context) if m.get('role') == 'user'), None)
+        if previous_user_msg and len(search_query.split()) < 7:
+            search_query = f"{previous_user_msg} {search_query}"
+
+        sources, mode = self.knowledge.search(search_query, state['category'])
         seen, unique = set(), []
         for source in sources:
             if source['url'] not in seen:
@@ -203,8 +214,14 @@ class ChatGraph:
 
         category = state.get('category', 'health')
         sources = state.get('sources', [])
+        context = state.get('context', [])
+        has_health_context = any(
+            bool(HEALTH.search(normalize(m.get('text', ''))))
+            for m in context
+            if m.get('role') == 'user'
+        )
 
-        if category == 'health' and not state.get('topic') and not HEALTH.search(normalize(query)):
+        if category == 'health' and not state.get('topic') and not HEALTH.search(normalize(query)) and not has_health_context:
             return {'answer': Answer(
                 route='health',
                 text='I can help with general health education and hospital questions. What health or hospital topic would you like to ask about?',
