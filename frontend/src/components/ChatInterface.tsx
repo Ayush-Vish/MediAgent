@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ChatMessage, SourceCitation, UserProfile } from "@/types/api";
+import { ChatAnswer, ChatMessage, SourceCitation, UserProfile } from "@/types/api";
 import { chatApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
@@ -45,6 +45,59 @@ const HEALTH_FACTS = [
   { fact: "A 2-minute movement break every 30 minutes of sitting helps stabilize blood sugar and insulin.", source: "Diabetes Care" },
   { fact: "Adults need 7–9 hours of consistent sleep each night for optimal immune and heart function.", source: "AHA" },
 ];
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function streamWords(
+  getTarget: () => string,
+  isDone: () => boolean,
+  hasError: () => unknown,
+  signal: AbortSignal,
+  onChunk: (text: string) => void
+): Promise<string> {
+  let displayed = "";
+  while (!signal.aborted) {
+    const error = hasError();
+    if (error && !displayed) {
+      throw error;
+    }
+
+    const targetText = getTarget();
+    if (displayed.length < targetText.length) {
+      if (!targetText.startsWith(displayed)) {
+        let common = 0;
+        while (
+          common < displayed.length &&
+          common < targetText.length &&
+          displayed[common] === targetText[common]
+        ) {
+          common++;
+        }
+        displayed = displayed.slice(0, common);
+      }
+
+      const remaining = targetText.slice(displayed.length);
+      const tokens = remaining.match(/(?:\n+|\s*\S+)/g) || [remaining];
+      const token = tokens[0];
+      displayed += token;
+      onChunk(displayed);
+
+      const remainingTokens = tokens.length;
+      const delay = remainingTokens > 40 ? 8 : remainingTokens > 15 ? 18 : 28;
+      await sleep(delay);
+    } else if (isDone()) {
+      if (error) {
+        throw error;
+      }
+      break;
+    } else {
+      await sleep(25);
+    }
+  }
+  return displayed;
+}
 
 function getRandomHealthFact(lastIndex: number): { fact: typeof HEALTH_FACTS[0]; index: number } {
   let nextIndex = Math.floor(Math.random() * HEALTH_FACTS.length);
@@ -189,19 +242,55 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
     const controller = new AbortController();
     streamRef.current = controller;
 
+    let targetText = "";
+    let serverDone = false;
+    let finalAnswer: ChatAnswer | null = null;
+    let streamError: unknown = null;
+
+    // Start background fetch from server
+    void chatApi
+      .streamMessage(
+        query,
+        pendingRef.current!.requestId,
+        (text) => {
+          targetText = text;
+        },
+        controller.signal
+      )
+      .then((answer) => {
+        finalAnswer = answer;
+        targetText = answer.text;
+        serverDone = true;
+      })
+      .catch((err) => {
+        streamError = err;
+        serverDone = true;
+      });
+
     try {
-      const answer = await chatApi.streamMessage(query, pendingRef.current!.requestId, text => {
-        setMessages(previous => {
-          const others = previous.filter(message => message.id !== draftMessage.id);
-          return text ? [...others, { ...draftMessage, text }] : others;
-        });
-      }, controller.signal);
-      setMessages(previous => [...previous.filter(message => message.id !== draftMessage.id),
-        { ...draftMessage, text: answer.text, answer }]);
+      await streamWords(
+        () => targetText,
+        () => serverDone,
+        () => streamError,
+        controller.signal,
+        (text) => {
+          setMessages((previous) => {
+            const others = previous.filter((m) => m.id !== draftMessage.id);
+            return [...others, { ...draftMessage, text }];
+          });
+        }
+      );
+
+      if (finalAnswer) {
+        setMessages((previous) => [
+          ...previous.filter((m) => m.id !== draftMessage.id),
+          { ...draftMessage, text: (finalAnswer as ChatAnswer).text, answer: finalAnswer as ChatAnswer },
+        ]);
+      }
       pendingRef.current = null;
       setStatusMessage("");
     } catch (err: unknown) {
-      setMessages(previous => previous.filter(message => message.id !== draftMessage.id));
+      setMessages((previous) => previous.filter((m) => m.id !== draftMessage.id));
       const errorText = err instanceof Error ? err.message : "Failed to obtain hospital guidance.";
       setHasError(true);
       setInput(query);
@@ -379,12 +468,12 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
                   >
                     {msg.text}
                   </Markdown>
+                  {loading && !answer && (
+                    <span className="inline-block w-1.5 h-3.5 ml-1 bg-foreground/60 animate-pulse rounded-xs align-baseline" />
+                  )}
                 </div>
 
                 {/* Source Citations */}
-                {loading && !answer && (
-                  <p className="text-xs text-muted-foreground/60">Searching verified sources…</p>
-                )}
                 {answer?.sources && answer.sources.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 pt-1">
                     {answer.sources.map((src) => (
@@ -403,43 +492,45 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
                 )}
 
                 {/* Micro Action Bar */}
-                <div className="flex items-center gap-2 text-[11px] text-muted-foreground/50 pt-0.5">
-                  <button
-                    type="button"
-                    onClick={() => handleCopy(msg.id, msg.text, answer?.sources)}
-                    className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
-                    title="Copy response"
-                  >
-                    {copiedId === msg.id ? (
-                      <>
-                        <Check className="size-3 text-emerald-500" />
-                        <span className="text-emerald-500">Copied</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="size-3" />
-                        <span>Copy</span>
-                      </>
-                    )}
-                  </button>
-                  <span>·</span>
-                  <span>
-                    {answer?.evidence === "supported"
-                      ? "Verified sources"
-                      : answer?.route === "emergency"
-                      ? "Emergency guidance"
-                      : answer?.evidence === "general"
-                      ? "General education"
-                      : "Hospital guidance"}
-                  </span>
-                </div>
+                {answer && (
+                  <div className="flex items-center gap-2 text-[11px] text-muted-foreground/50 pt-0.5">
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(msg.id, msg.text, answer?.sources)}
+                      className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
+                      title="Copy response"
+                    >
+                      {copiedId === msg.id ? (
+                        <>
+                          <Check className="size-3 text-emerald-500" />
+                          <span className="text-emerald-500">Copied</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="size-3" />
+                          <span>Copy</span>
+                        </>
+                      )}
+                    </button>
+                    <span>·</span>
+                    <span>
+                      {answer.evidence === "supported"
+                        ? "Verified sources"
+                        : answer.route === "emergency"
+                        ? "Emergency guidance"
+                        : answer.evidence === "general"
+                        ? "General education"
+                        : "Hospital guidance"}
+                    </span>
+                  </div>
+                )}
               </div>
             );
           })
         )}
 
         {/* Loading Indicator with Random Health Fact */}
-        {loading && (
+        {loading && !messages.some((m) => m.role === "assistant" && m.text.length > 0) && (
           <div className="flex items-start gap-2.5 text-xs text-muted-foreground/80 py-2 px-3 rounded-xl border border-border/40 bg-muted/20 max-w-lg">
             <Loader2 className="size-3.5 animate-spin mt-0.5 shrink-0 text-foreground/70" />
             <div className="leading-relaxed">
