@@ -522,6 +522,16 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
                         ? "General education"
                         : "Hospital guidance"}
                     </span>
+                    <span>·</span>
+                    <button
+                      type="button"
+                      disabled={loading || !ready}
+                      onClick={() => handleSend("Hinglish mein samjhao")}
+                      className="hover:text-foreground transition-colors inline-flex items-center gap-1 opacity-70 hover:opacity-100"
+                      title="Convert explanation to Hinglish"
+                    >
+                      <span>🌐 Hinglish</span>
+                    </button>
                   </div>
                 )}
               </div>

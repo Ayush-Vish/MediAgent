@@ -35,6 +35,28 @@ class ChatState(TypedDict, total=False):
     is_human_request: bool
 
 
+def _format_local_response(query: str, citations: list, hospital_name: str) -> str:
+    is_hinglish = bool(re.search(r'\b(hinglish|hindi|samjhao|batao|karein|chahiye)\b', normalize(query)))
+    items = []
+    for c in citations:
+        body = c.excerpt.replace("Read the linked source for full context.", "").strip()
+        body = re.sub(r'\s+', ' ', body)
+        items.append(f"• **{c.title}**: {body} [{c.id}]")
+
+    joined_items = '\n\n'.join(items)
+    if is_hinglish:
+        return (
+            f"Yahan {hospital_name} ki official guidelines ke anusar zaroori jaankari di gayi hai:\n\n"
+            f"{joined_items}\n\n"
+            f"💡 *Aap aur sawal bhi Hinglish mein pooch sakte hain! Kisi bhi medical query ke liye doctor se salah lein.*"
+        )
+    return (
+        f"Based on official guidelines from {hospital_name}, here is the key information:\n\n"
+        f"{joined_items}\n\n"
+        f"💡 *Aap chahein toh hum Hinglish mein bhi baat kar sakte hain. Bas type karein: \"Hinglish mein samjhao\"!*"
+    )
+
+
 class ChatGraph:
     def __init__(self, knowledge, store, settings):
         self.knowledge, self.store, self.settings = knowledge, store, settings
@@ -71,8 +93,9 @@ class ChatGraph:
                          'summary': severity.summary}
 
         # Topic detection
+        is_hinglish_request = bool(re.search(r'\b(hinglish|hindi|hindi me|hinglish me|hindi mein|hinglish mein|samjhao|batao|anuvad|translate)\b', normalize(query)))
         topic = topic_for(query)
-        if not topic and normalize(query) in {'tell me more', 'more', 'and then', 'what next'}:
+        if not topic and (is_hinglish_request or normalize(query) in {'tell me more', 'more', 'and then', 'what next'}):
             topic = state.get('previous_topic')
             if topic:
                 query = TOPICS[topic][1]
@@ -212,7 +235,7 @@ class ChatGraph:
                 generated = True
                 evidence = 'supported'
             elif category == 'hospital' or self.provider.name == 'local':
-                text = '\n\n'.join(f'{c.excerpt} [{c.id}]' for c in citations)
+                text = _format_local_response(query, citations, self.settings.hospital_name)
                 evidence = 'supported'
 
         # If not answered by sources and category is health, call AI general answer
@@ -223,7 +246,7 @@ class ChatGraph:
                 evidence = 'general'
                 citations = []
             elif sources and self.provider.name == 'local':
-                text = '\n\n'.join(f'{c.excerpt} [{c.id}]' for c in citations)
+                text = _format_local_response(query, citations, self.settings.hospital_name)
                 evidence = 'supported'
             else:
                 text = ('I am here to help with health questions. For this specific symptom or condition, '
