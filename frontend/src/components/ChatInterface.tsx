@@ -33,7 +33,7 @@ const STARTER_PROMPTS = [
   { text: "What is the difference between paracetamol and Dolo?", icon: Sparkles },
 ];
 
-const HEALTH_FACTS = [
+export const HEALTH_FACTS = [
   { fact: "Walking briskly for 30 minutes daily can lower cardiovascular disease risk by up to 35%.", source: "WHO" },
   { fact: "During deep sleep, the brain's glymphatic system flushes out toxic metabolic waste.", source: "NIH" },
   { fact: "About 70% of your body's immune cells reside within your gut microbiome.", source: "Johns Hopkins" },
@@ -131,7 +131,9 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
   const [loading, setLoading] = useState<boolean>(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>("");
-  const [currentFact, setCurrentFact] = useState<typeof HEALTH_FACTS[0] | null>(null);
+  const [currentFact, setCurrentFact] = useState<typeof HEALTH_FACTS[0] | null>(
+    () => HEALTH_FACTS[Math.floor(Math.random() * HEALTH_FACTS.length)]
+  );
   const [factFade, setFactFade] = useState(false);
   const [ready, setReady] = useState(false);
   const [hasError, setHasError] = useState(false);
@@ -143,7 +145,7 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
   useEffect(() => () => streamRef.current?.abort(), []);
 
   useEffect(() => {
-    if (!loading) return;
+    if (ready && !loading) return;
 
     const interval = setInterval(() => {
       setFactFade(true);
@@ -156,7 +158,7 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
     }, 4500);
 
     return () => clearInterval(interval);
-  }, [loading]);
+  }, [loading, ready]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -374,7 +376,31 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
         aria-live="polite"
         className="chat-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden py-6 pr-1 flex flex-col gap-6"
       >
-        {messages.length === 0 ? (
+        {!ready ? (
+          <div className="my-auto flex flex-col items-center justify-center text-center px-4 max-w-lg mx-auto py-16">
+            <div className="flex items-start gap-3 text-xs py-3 px-4 rounded-2xl border border-border/50 bg-muted/20 max-w-md shadow-xs">
+              <Sparkles className="size-4 mt-0.5 shrink-0 text-foreground/80 animate-pulse" />
+              <div
+                className={`text-left leading-relaxed transition-all duration-200 ${
+                  factFade ? "opacity-0 translate-y-1" : "opacity-100 translate-y-0"
+                }`}
+              >
+                {currentFact ? (
+                  <>
+                    <span className="font-semibold text-foreground">Health Fact: </span>
+                    <span className="text-foreground/90 font-medium">{currentFact.fact}</span>
+                    <span className="ml-1.5 text-[10px] text-muted-foreground/60 font-medium">({currentFact.source})</span>
+                  </>
+                ) : (
+                  <span className="text-muted-foreground font-medium">Loading medical information…</span>
+                )}
+              </div>
+            </div>
+            <p className="mt-3 text-[11px] text-muted-foreground/60 font-medium">
+              Connecting and loading session…
+            </p>
+          </div>
+        ) : messages.length === 0 ? (
           <div className="my-auto flex flex-col items-center justify-center text-center px-4 max-w-lg mx-auto py-16">
             <h1 className="text-2xl sm:text-3xl font-medium tracking-tight text-foreground">
               How can I help you today?
