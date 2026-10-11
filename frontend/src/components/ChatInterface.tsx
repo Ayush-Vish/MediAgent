@@ -44,6 +44,20 @@ const HEALTH_FACTS = [
   { fact: "Washing hands with soap and water for 20 seconds reduces diarrheal illnesses by up to 30%.", source: "CDC" },
   { fact: "A 2-minute movement break every 30 minutes of sitting helps stabilize blood sugar and insulin.", source: "Diabetes Care" },
   { fact: "Adults need 7–9 hours of consistent sleep each night for optimal immune and heart function.", source: "AHA" },
+  { fact: "Your heart pumps roughly 7,500 liters (2,000 gallons) of blood through your circulatory system each day.", source: "Cleveland Clinic" },
+  { fact: "Laughing increases endorphin release, relaxes blood vessels, and boosts oxygen intake.", source: "Mayo Clinic" },
+  { fact: "Eating fiber-rich foods feeds beneficial gut microbes, which produce short-chain fatty acids that fight inflammation.", source: "Harvard T.H. Chan" },
+  { fact: "Just 10–15 minutes of midday sunlight provides adequate Vitamin D synthesis for most skin types without burning.", source: "NHS" },
+  { fact: "Chronic psychological stress can shorten telomeres, accelerating cellular aging.", source: "Nobel Prize / Blackburn Lab" },
+  { fact: "Muscle tissue burns approximately 3 times more calories at rest than adipose (fat) tissue.", source: "NIH" },
+  { fact: "Drinking water before meals can improve digestive enzyme efficiency and natural satiety signals.", source: "Mayo Clinic" },
+  { fact: "Regular resistance training increases bone mineral density, reducing fracture risk later in life.", source: "National Osteoporosis Foundation" },
+  { fact: "Dark leafy greens are loaded with lutein and zeaxanthin, which help protect retinal cells from blue light damage.", source: "NEI" },
+  { fact: "The human cornea is one of the only tissues in the body that receives oxygen directly from the air rather than blood vessels.", source: "American Academy of Ophthalmology" },
+  { fact: "Nose breathing filters, humidifies, and adds nitric oxide to inhaled air, enhancing oxygen uptake in the lungs.", source: "Stanford Medicine" },
+  { fact: "Replacing sugary sodas with water or unsweetened tea significantly lowers type 2 diabetes risk.", source: "BMJ" },
+  { fact: "Taking deep diaphragmatic breaths triggers the vagus nerve, immediately shifting your nervous system into 'rest and digest' mode.", source: "Harvard Health" },
+  { fact: "Omega-3 fatty acids from fish, walnuts, or flaxseeds form crucial structural components of cell membranes in the brain.", source: "NIH" },
 ];
 
 function sleep(ms: number): Promise<void> {
@@ -118,6 +132,7 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [currentFact, setCurrentFact] = useState<typeof HEALTH_FACTS[0] | null>(null);
+  const [factFade, setFactFade] = useState(false);
   const [ready, setReady] = useState(false);
   const [hasError, setHasError] = useState(false);
   const pendingRef = useRef<{ query: string; requestId: string } | null>(null);
@@ -131,10 +146,14 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
     if (!loading) return;
 
     const interval = setInterval(() => {
-      const next = getRandomHealthFact(lastFactIndexRef.current);
-      lastFactIndexRef.current = next.index;
-      setCurrentFact(next.fact);
-    }, 6500);
+      setFactFade(true);
+      setTimeout(() => {
+        const next = getRandomHealthFact(lastFactIndexRef.current);
+        lastFactIndexRef.current = next.index;
+        setCurrentFact(next.fact);
+        setFactFade(false);
+      }, 250);
+    }, 4500);
 
     return () => clearInterval(interval);
   }, [loading]);
@@ -539,19 +558,23 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
           })
         )}
 
-        {/* Loading Indicator with Random Health Fact */}
+        {/* Animated Health Fact Box (No Spinner) */}
         {loading && !messages.some((m) => m.role === "assistant" && m.text.length > 0) && (
-          <div className="flex items-start gap-2.5 text-xs text-muted-foreground/80 py-2 px-3 rounded-xl border border-border/40 bg-muted/20 max-w-lg">
-            <Loader2 className="size-3.5 animate-spin mt-0.5 shrink-0 text-foreground/70" />
-            <div className="leading-relaxed">
+          <div className="flex items-start gap-2.5 text-xs py-2 px-3.5 rounded-xl border border-border/40 bg-muted/20 max-w-lg transition-all duration-300">
+            <Sparkles className="size-3.5 mt-0.5 shrink-0 text-foreground/80 animate-pulse" />
+            <div
+              className={`leading-relaxed transition-all duration-200 ${
+                factFade ? "opacity-0 translate-y-1" : "opacity-100 translate-y-0"
+              }`}
+            >
               {currentFact ? (
                 <>
-                  <span className="font-medium text-foreground">Health Fact: </span>
-                  <span>{currentFact.fact}</span>
-                  <span className="ml-1 text-[10px] text-muted-foreground/60">({currentFact.source})</span>
+                  <span className="font-semibold text-foreground">Health Fact: </span>
+                  <span className="text-foreground/90 font-medium">{currentFact.fact}</span>
+                  <span className="ml-1.5 text-[10px] text-muted-foreground/60 font-medium">({currentFact.source})</span>
                 </>
               ) : (
-                <span>Loading…</span>
+                <span className="text-muted-foreground font-medium">Loading medical information…</span>
               )}
             </div>
           </div>

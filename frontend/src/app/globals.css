@@ -60,17 +60,27 @@
     from { opacity: 0; transform: translateY(6px); }
     to { opacity: 1; transform: translateY(0); }
   }
+  @keyframes fact-fade {
+    0% { opacity: 0; transform: translateY(4px); }
+    15% { opacity: 1; transform: translateY(0); }
+    85% { opacity: 1; transform: translateY(0); }
+    100% { opacity: 0; transform: translateY(-4px); }
+  }
+  .fact-animate {
+    animation: fact-fade 5s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+  }
 }
 
-.chat-markdown { overflow-wrap: anywhere; }
+.chat-markdown { overflow-wrap: anywhere; font-weight: 450; }
 .chat-markdown > :first-child { margin-top: 0; }
 .chat-markdown > :last-child { margin-bottom: 0; }
 .chat-markdown p { margin: 0.65rem 0; }
 .chat-markdown ul { list-style: disc; padding-left: 1.4rem; margin: 0.65rem 0; }
 .chat-markdown ol { list-style: decimal; padding-left: 1.4rem; margin: 0.65rem 0; }
 .chat-markdown li { margin: 0.25rem 0; }
-.chat-markdown h1, .chat-markdown h2, .chat-markdown h3 { font-weight: 600; margin: 1rem 0 0.5rem; }
-.chat-markdown a { text-decoration: underline; text-underline-offset: 3px; }
+.chat-markdown strong, .chat-markdown b { font-weight: 650; }
+.chat-markdown h1, .chat-markdown h2, .chat-markdown h3 { font-weight: 650; margin: 1rem 0 0.5rem; }
+.chat-markdown a { text-decoration: underline; text-underline-offset: 3px; font-weight: 500; }
 .chat-markdown blockquote { border-left: 2px solid var(--border); padding-left: 1rem; }
 .chat-markdown pre { overflow-x: auto; padding: 0.75rem; background: var(--muted); border-radius: 0.5rem; }
 .chat-markdown table { width: 100%; border-collapse: collapse; font-size: 0.85em; }
@@ -151,6 +161,7 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-weight: 450;
   }
   html {
     @apply font-sans;
