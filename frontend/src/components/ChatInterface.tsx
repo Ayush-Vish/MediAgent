@@ -640,8 +640,8 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
           </div>
         </div>
 
-        <p className="mt-2 text-center text-[10px] text-muted-foreground/40 font-light">
-          Independent assistant for {hospitalName}. For medical emergencies, contact emergency services.
+        <p className="mt-2.5 text-center text-xs text-muted-foreground font-normal">
+          Independent assistant for {hospitalName}. For medical emergencies, call <strong className="font-semibold text-foreground">112</strong> immediately.
         </p>
       </div>
     </div>
