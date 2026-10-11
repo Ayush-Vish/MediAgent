@@ -158,8 +158,9 @@ class Knowledge:
                           + (1 / (60 + positions[s['id']]) if s['id'] in positions else 0) for s in hits}
                 hits.sort(key=lambda s: scores[s['id']], reverse=True)
                 mode = 'hybrid'
-            except Exception:
-                event('retrieval.fallback', reason='hybrid_unavailable', mode='lexical')
+            except Exception as error:
+                event('retrieval.fallback', reason='hybrid_unavailable', mode='lexical',
+                      error_type=type(error).__name__)
                 log.warning('Hybrid retrieval unavailable; using local evidence')
         retrieved_chunks(hits[:3])
         return hits[:3], mode
