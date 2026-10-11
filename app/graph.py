@@ -181,6 +181,13 @@ class ChatGraph:
         category = state.get('category', 'health')
         sources = state.get('sources', [])
 
+        if category == 'health' and not state.get('topic') and not HEALTH.search(normalize(query)):
+            return {'answer': Answer(
+                route='health',
+                text='I can help with general health education and hospital questions. What health or hospital topic would you like to ask about?',
+                evidence='none',
+            ).model_dump(), 'alert': None}
+
         # 4. Hospital questions without approved sources -> abstain (handoff)
         if category == 'hospital' and not sources:
             return {'answer': self.abstain(

@@ -30,7 +30,16 @@ HEALTH = re.compile(
     r'diagnos\w*|prescri\w*|infect\w*|cold|flu|stomach|throat|ache|injury|wound|'
     r'nausea|dizz\w*|allergy|allergic|breath\w*|gout|asthma|cancer|disease|illness|'
     r'syndrome|disorder|uric|joint|muscle|heart|kidney|liver|lung|skin|virus|bacteri\w*|'
-    r'treat\w*|vitamin|deficien\w*|cramp|fatigue|swelling|swollen|bleed\w*)\b'
+    r'treat\w*|vitamin|deficien\w*|cramp|fatigue|swelling|swollen|bleed\w*|'
+    r'health|medical|wellness|vaccine\w*|vaccin\w*|sleep|exercise|nutrition|diet|immune|'
+    r'mental health|stress|anxiety|depress\w*|pregnan\w*)\b'
+)
+INTERNAL_OUTPUT = re.compile(
+    r"here(?:'|’)s a thinking process|here is a thinking process|thinking process\s*:|"
+    r'the prompt instructions say|(?:system|developer) prompt|'
+    r'output only the (?:direct(?:, patient-facing)?|patient-facing) response|'
+    r'user safety\s*:|safety categories\s*:|chain[- ]of[- ]thought|internal safety classification',
+    re.IGNORECASE,
 )
 TREATMENT = re.compile(
     r'\b(dose|dosage|prescribe|diagnose me)\b|\b(should|can) i (take|stop|start|increase|decrease)\b'
@@ -136,5 +145,6 @@ def safe_to_store(message):
 
 
 def reply_allowed(text):
-    return not IDENTIFIER.search(normalize(text)) and not re.search(
-        r'\b(you (have|should take|must take|should stop)|guaranteed cure|no need to see|take \d+|\d+\s*mg)\b', normalize(text))
+    normalized = normalize(text)
+    return not INTERNAL_OUTPUT.search(text) and not IDENTIFIER.search(normalized) and not re.search(
+        r'\b(you (have|should take|must take|should stop)|guaranteed cure|no need to see|take \d+|\d+\s*mg)\b', normalized)

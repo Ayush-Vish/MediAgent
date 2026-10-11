@@ -234,6 +234,11 @@ def clean_llm_output(content: str | None) -> str | None:
     if not isinstance(content, str):
         return None
     text = content.strip()
+    # Reject internal traces/classifier labels instead of trying to salvage prose
+    # that may contain hidden prompts or model reasoning.
+    from app.safety import INTERNAL_OUTPUT
+    if INTERNAL_OUTPUT.search(text):
+        return None
     # Strip <think>...</think> tags if present
     text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
     # If the response starts with reasoning scratchpad

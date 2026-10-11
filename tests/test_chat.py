@@ -6,6 +6,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import create_app
+from app.providers import clean_llm_output
+from app.safety import reply_allowed
 
 
 def ask(client, message, request_id=None):
@@ -30,6 +32,26 @@ def test_guard_routes(client, monkeypatch, message, route):
     result = ask(client, message)
     assert result.status_code == 200
     assert result.json()['route'] == route
+
+
+@pytest.mark.parametrize('content', [
+    'Here\'s a thinking process:\nThe prompt instructions say: "Be informative and helpful."',
+    'User Safety: unsafe Safety Categories: Unauthorized Advice',
+    'IMPORTANT: Output ONLY the direct, patient-facing response.',
+])
+def test_internal_model_text_is_rejected(content):
+    assert clean_llm_output(content) is None
+    assert not reply_allowed(content)
+
+
+def test_non_health_prompt_gets_scope_redirect_without_model(client, app, monkeypatch):
+    def unexpected(*args, **kwargs):
+        raise AssertionError('Out-of-scope prompt must not reach the model')
+    monkeypatch.setattr(app.state.service.graph, 'generate_general_answer', unexpected)
+    response = ask(client, 'Write a poem about the moon.')
+    assert response.status_code == 200
+    assert 'general health education and hospital questions' in response.json()['text']
+    assert 'consulting a qualified healthcare professional' not in response.json()['text']
 
 
 def test_appointment_citations(client):
