@@ -457,19 +457,14 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
         {loading && (
           <div className="flex gap-3 items-start text-xs text-muted-foreground py-2 px-1">
             <Loader2 aria-hidden="true" className="size-4 shrink-0 animate-spin text-primary mt-0.5" />
-            <div className="space-y-2">
-              <p role="status">{statusMessage || "MediAgent is verifying clinical information..."}</p>
-              {healthFactIndex !== null && (
-                <p className="max-w-xl rounded-lg border border-border/70 bg-muted/30 px-3 py-2 leading-relaxed">
-                  <span className="font-medium text-foreground">General health fact: </span>
-                  {HEALTH_FACTS[healthFactIndex].text}{" "}
-                  <a href={HEALTH_FACTS[healthFactIndex].url} target="_blank" rel="noopener noreferrer"
-                    className="underline underline-offset-2 hover:text-foreground">
-                    {HEALTH_FACTS[healthFactIndex].source}
-                  </a>
-                </p>
-              )}
-            </div>
+            <p role="status" className="max-w-xl rounded-lg border border-border/70 bg-muted/30 px-3 py-2 leading-relaxed">
+              <span className="font-medium text-foreground">Health fact: </span>
+              {HEALTH_FACTS[healthFactIndex ?? 0].text}{" "}
+              <a href={HEALTH_FACTS[healthFactIndex ?? 0].url} target="_blank" rel="noopener noreferrer"
+                className="underline underline-offset-2 hover:text-foreground">
+                {HEALTH_FACTS[healthFactIndex ?? 0].source}
+              </a>
+            </p>
           </div>
         )}
       </div>
