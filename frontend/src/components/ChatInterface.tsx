@@ -38,6 +38,14 @@ const STARTER_PROMPTS = [
   { text: "What is the difference between paracetamol and Dolo?", icon: Sparkles, color: "text-amber-500" },
 ];
 
+const HEALTH_FACTS = [
+  { text: "Most adults need at least 7 hours of sleep a night.", source: "CDC", url: "https://www.cdc.gov/sleep/about/index.html" },
+  { text: "Regular physical activity benefits both physical and mental health.", source: "CDC", url: "https://www.cdc.gov/physical-activity-basics/benefits/index.html" },
+  { text: "Washing hands with soap and water for 20 seconds helps prevent the spread of germs.", source: "CDC", url: "https://www.cdc.gov/clean-hands/about/index.html" },
+  { text: "A healthy diet includes a variety of fruits, vegetables, legumes, and whole grains.", source: "WHO", url: "https://www.who.int/news-room/fact-sheets/detail/healthy-diet" },
+  { text: "Seeking shade and wearing protective clothing can help reduce exposure to ultraviolet rays.", source: "CDC", url: "https://www.cdc.gov/skin-cancer/sun-safety/index.html" },
+];
+
 function createMessage(role: ChatMessage["role"], text: string, answer?: ChatMessage["answer"]): ChatMessage {
   return { id: crypto.randomUUID(), role, text, answer, timestamp: Date.now() };
 }
@@ -48,11 +56,30 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
   const [loading, setLoading] = useState<boolean>(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>("");
+  const [healthFactIndex, setHealthFactIndex] = useState<number | null>(null);
   const [ready, setReady] = useState(false);
   const [hasError, setHasError] = useState(false);
   const pendingRef = useRef<{ query: string; requestId: string } | null>(null);
   const busyRef = useRef(false);
   const streamRef = useRef<AbortController | null>(null);
+  const lastHealthFactIndexRef = useRef(-1);
+
+  useEffect(() => {
+    if (!loading) {
+      return;
+    }
+    const showNextFact = () => {
+      let next = Math.floor(Math.random() * HEALTH_FACTS.length);
+      if (HEALTH_FACTS.length > 1 && next === lastHealthFactIndexRef.current) {
+        next = (next + 1) % HEALTH_FACTS.length;
+      }
+      lastHealthFactIndexRef.current = next;
+      setHealthFactIndex(next);
+    };
+    showNextFact();
+    const timer = setInterval(showNextFact, 12_000);
+    return () => clearInterval(timer);
+  }, [loading]);
 
   useEffect(() => () => streamRef.current?.abort(), []);
 
@@ -428,9 +455,21 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
 
         {/* Loading Indicator */}
         {loading && (
-          <div className="flex gap-3 items-center text-xs text-muted-foreground py-2 px-1">
-            <Loader2 className="size-4 animate-spin text-primary" />
-            <span>{statusMessage || "MediAgent is verifying clinical information..."}</span>
+          <div className="flex gap-3 items-start text-xs text-muted-foreground py-2 px-1">
+            <Loader2 aria-hidden="true" className="size-4 shrink-0 animate-spin text-primary mt-0.5" />
+            <div className="space-y-2">
+              <p role="status">{statusMessage || "MediAgent is verifying clinical information..."}</p>
+              {healthFactIndex !== null && (
+                <p className="max-w-xl rounded-lg border border-border/70 bg-muted/30 px-3 py-2 leading-relaxed">
+                  <span className="font-medium text-foreground">General health fact: </span>
+                  {HEALTH_FACTS[healthFactIndex].text}{" "}
+                  <a href={HEALTH_FACTS[healthFactIndex].url} target="_blank" rel="noopener noreferrer"
+                    className="underline underline-offset-2 hover:text-foreground">
+                    {HEALTH_FACTS[healthFactIndex].source}
+                  </a>
+                </p>
+              )}
+            </div>
           </div>
         )}
       </div>
