@@ -66,7 +66,7 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
       try {
         const session = await chatApi.initSession();
         if (isCancelled) return;
-        if (session.turns && session.turns.length > 0) {
+        if (session.messages.length || session.turns.length > 0) {
           const restored: ChatMessage[] = [];
           session.turns.forEach((t, i) => {
             restored.push({

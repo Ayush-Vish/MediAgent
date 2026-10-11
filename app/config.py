@@ -11,8 +11,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=ROOT / '.env', extra='ignore')
     environment: str = 'local'
     log_file: str = 'runtime/logs/mediagent.jsonl'
-    log_show_chunks: bool = True
-    log_show_query: bool = True
+    log_show_chunks: bool = False
+    log_show_query: bool = False
     database_url: str = 'sqlite:///runtime/mediagent.db'
     hospital_name: str = 'CMC Vellore'
     hospital_id: str = 'cmc-vellore'

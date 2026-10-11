@@ -10,6 +10,37 @@ from rich.console import Console
 from app.observability import PrettyHandler
 
 
+@pytest.mark.parametrize('enabled', [True, False])
+def test_cloud_console_content_flags(settings, monkeypatch, capsys, enabled):
+    from app import observability
+    from app.main import create_app
+
+    # Reuse the isolated test database while exercising cloud startup logging.
+    settings.environment = 'cloud'
+    settings.log_show_query = enabled
+    settings.log_show_chunks = enabled
+    monkeypatch.setattr(observability, 'HAS_RICH', False)
+    application = create_app(settings)
+    try:
+        observability.user_query('Example patient query')
+        observability.retrieved_chunks([{'title': 'Source title', 'url': 'https://example.com',
+                                        'text': 'Retrieved passage'}])
+        output = capsys.readouterr().err
+        assert ('Example patient query' in output) is enabled
+        assert ('Chunk 1: Source title' in output) is enabled
+        assert ('Retrieved passage' in output) is enabled
+    finally:
+        application.state.store.engine.dispose()
+        observability.configure_logging(settings.log_file)
+
+
+def test_query_excluded_from_json():
+    record = logging.LogRecord('pipeline', logging.INFO, '', 0, '', (), None)
+    record.event_data = {'event': 'chat.query', 'request_id': 'test-id'}
+    record.query = 'Example patient query'
+    assert record.query not in JsonFormatter().format(record)
+
+
 def test_pretty_chunks_are_literal_and_excluded_from_json():
     output = StringIO()
     handler = PrettyHandler(Console(file=output, force_terminal=True, width=100, color_system='standard'))

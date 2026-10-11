@@ -28,6 +28,7 @@ from app.schemas import (Answer, AuthResponse, ChatRequest, EmbedRequest,
                          UserRegister)
 from app.service import ChatService
 from app.schemas import DoctorMessage, TimelineSummaryRequest
+from app.schemas import HistoryImport
 from app.store import Store
 from app.vector import HybridIndex
 
@@ -36,8 +37,8 @@ log = logging.getLogger(__name__)
 
 def create_app(settings=None):
     settings = settings or Settings()
-    configure_logging(settings.log_file, show_chunks=settings.log_show_chunks and settings.environment == 'local',
-                      show_query=settings.log_show_query and settings.environment == 'local')
+    configure_logging(settings.log_file, show_chunks=settings.log_show_chunks,
+                      show_query=settings.log_show_query)
     store = Store(settings.database_url, settings.retention_hours)
     knowledge = Knowledge(store, settings)
     knowledge.seed()
@@ -121,7 +122,8 @@ def create_app(settings=None):
             if origin and not is_origin_allowed(origin):
                 return JSONResponse({'error': 'Origin not allowed'}, status_code=403)
             body = await request.body()
-            if len(body) > 100_000:
+            limit = 500_000 if request.url.path == '/api/history/import' else 100_000
+            if len(body) > limit:
                 return JSONResponse({'error': 'Request too large'}, status_code=413)
 
         response = await call_next(request)
@@ -187,6 +189,11 @@ def create_app(settings=None):
             raise HTTPException(401, 'Patient sign-in required.')
         return user
 
+    def set_session_cookie(response, token):
+        response.set_cookie('mediagent_session', token, httponly=True,
+                            samesite='none' if settings.environment == 'cloud' else 'lax',
+                            secure=settings.environment == 'cloud', max_age=settings.retention_hours * 3600)
+
     def staff(request: Request):
         header = request.headers.get('authorization', '')
         if not header.startswith('Bearer '):
@@ -231,16 +238,27 @@ def create_app(settings=None):
         if not store.consume('quota:new:' + key, 30, 60):
             raise HTTPException(429, 'Please wait before creating another conversation.')
         token = request.cookies.get('mediagent_session')
+        if user:
+            token = service.patient_session(user, token)
+            set_session_cookie(response, token)
+            return service.history(token, user=user)
         if token and len(token) <= 200:
             try:
                 return service.history(token, user=user)
             except LookupError:
                 pass
         token = service.create_session()
-        cookie_samesite = 'none' if settings.environment == 'cloud' else 'lax'
-        response.set_cookie('mediagent_session', token, httponly=True, samesite=cookie_samesite,
-                            secure=settings.environment == 'cloud', max_age=settings.retention_hours * 3600)
-        return {'turns': [], 'reviews': []}
+        set_session_cookie(response, token)
+        return {'turns': [], 'reviews': [], 'user_id': None}
+
+    @app.post('/api/history/import')
+    def import_history(body: HistoryImport, token=Depends(session), user=Depends(current_user)):
+        if body.user_id != user['id']:
+            raise HTTPException(403, 'Account changed. Sign in again before restoring history.')
+        try:
+            return service.import_history(token, user, body.turns)
+        except LookupError as error:
+            raise HTTPException(401, str(error)) from None
 
     @app.post('/api/chat', response_model=Answer)
     def chat(body: ChatRequest, token=Depends(session), user=Depends(optional_user)):
@@ -301,19 +319,23 @@ def create_app(settings=None):
         })
 
     @app.delete('/api/session')
-    def forget(response: Response, token=Depends(session)):
-        service.forget(token)
+    def forget(response: Response, token=Depends(session), user=Depends(optional_user)):
+        try:
+            service.forget(token, user)
+        except LookupError as error:
+            raise HTTPException(401, str(error)) from None
         response.delete_cookie('mediagent_session')
         return {'ok': True}
 
     @app.post('/api/auth/register', response_model=AuthResponse)
-    def register(body: UserRegister, response: Response):
+    def register(body: UserRegister, request: Request, response: Response):
         try:
             register_user(store, body.model_dump())
             auth_res = authenticate_user(store, body.email, body.password)
             if not auth_res:
                 raise HTTPException(500, 'Authentication error after registration.')
             token, safe_user = auth_res
+            set_session_cookie(response, service.patient_session(safe_user, request.cookies.get('mediagent_session')))
             cookie_samesite = 'none' if settings.environment == 'cloud' else 'lax'
             response.set_cookie('mediagent_auth', token, httponly=True, samesite=cookie_samesite,
                                 secure=settings.environment == 'cloud', max_age=30 * 86400)
@@ -322,11 +344,12 @@ def create_app(settings=None):
             raise HTTPException(400, str(error)) from None
 
     @app.post('/api/auth/login', response_model=AuthResponse)
-    def login(body: UserLogin, response: Response):
+    def login(body: UserLogin, request: Request, response: Response):
         auth_res = authenticate_user(store, body.email, body.password)
         if not auth_res:
             raise HTTPException(401, 'Invalid email or password.')
         token, safe_user = auth_res
+        set_session_cookie(response, service.patient_session(safe_user, request.cookies.get('mediagent_session')))
         cookie_samesite = 'none' if settings.environment == 'cloud' else 'lax'
         response.set_cookie('mediagent_auth', token, httponly=True, samesite=cookie_samesite,
                             secure=settings.environment == 'cloud', max_age=30 * 86400)
@@ -341,6 +364,7 @@ def create_app(settings=None):
                 token = header[7:]
         logout_user(store, token)
         response.delete_cookie('mediagent_auth')
+        response.delete_cookie('mediagent_session')
         return {'ok': True}
 
     @app.get('/api/auth/me')

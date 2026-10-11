@@ -52,8 +52,10 @@ export const ConversationMessageSchema = z.object({
 export type ConversationMessage = z.infer<typeof ConversationMessageSchema>;
 
 export const SessionHistorySchema = z.object({
+  user_id: z.string().nullable().default(null),
   messages: z.array(ConversationMessageSchema).default([]),
   turns: z.array(z.object({
+    request_id: z.string().optional(),
     question: z.string(),
     answer: z.unknown(),
     created: z.number().optional(),
@@ -62,7 +64,7 @@ export const SessionHistorySchema = z.object({
 
 export function parseSessionHistory(data: unknown) {
   const session = SessionHistorySchema.parse(data);
-  return { messages: session.messages, turns: session.turns.map((turn) => {
+  return { user_id: session.user_id, messages: session.messages, turns: session.turns.map((turn) => {
     const parsed = ChatAnswerSchema.safeParse(turn.answer);
     // Older records may have unsupported metadata. Preserve only valid text,
     // never coerce an object into a message string.
@@ -72,7 +74,7 @@ export function parseSessionHistory(data: unknown) {
       sources: [],
       evidence: "none",
     };
-    return { question: turn.question, answer, created: turn.created };
+    return { request_id: turn.request_id, question: turn.question, answer, created: turn.created };
   }) };
 }
 

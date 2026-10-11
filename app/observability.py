@@ -52,6 +52,10 @@ class PrettyHandler(logging.Handler):
             sys.stderr.write(f"{time_str}  [{req}]  {name}  {details}\n")
             if hasattr(record, 'query'):
                 sys.stderr.write('User query: ' + terminal_text(record.query) + '\n')
+            for index, source in enumerate(getattr(record, 'chunks', []), 1):
+                sys.stderr.write(f'Chunk {index}: ' + terminal_text(source.get('title', 'Untitled')) + '\n'
+                                 + terminal_text(source.get('url', '')) + '\n'
+                                 + terminal_text(source.get('text', '')) + '\n')
             return
         color = ('red' if any(x in name for x in ('failed', 'exhausted', 'disabled', 'unavailable'))
                  else 'yellow' if any(x in name for x in ('fallback', 'cooldown', 'skipped', 'no_result'))

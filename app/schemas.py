@@ -17,6 +17,18 @@ class ChatRequest(BaseModel):
         return value.strip()
 
 
+class HistoryTurn(BaseModel):
+    request_id: UUID
+    question: str = Field(min_length=1, max_length=2000)
+    answer_text: str = Field(min_length=1, max_length=100000)
+    created: float = Field(ge=0, allow_inf_nan=False)
+
+
+class HistoryImport(BaseModel):
+    user_id: str = Field(min_length=1, max_length=160)
+    turns: list[HistoryTurn] = Field(min_length=1, max_length=1)
+
+
 class Citation(BaseModel):
     id: str
     title: str

@@ -82,7 +82,7 @@ Interactive schemas are available at `/docs`.
 | --- | --- |
 | `POST /api/session` | Create or restore an HttpOnly-cookie conversation |
 | `POST /api/chat` | `{message, request_id}` → `{text, route, sources, evidence, mode}` |
-| `GET /api/history` | Own sanitized history and staff replies |
+| `GET /api/history` | Own chat history and staff replies |
 | `DELETE /api/session` | Delete own conversation and review records |
 | `POST /api/reviews` | Request a demo handoff for the current conversation |
 | `GET /api/staff/reviews` | Authenticated review queue |
@@ -95,9 +95,9 @@ Interactive schemas are available at `/docs`.
 
 ## Privacy, retention and operational limits
 
-Anonymous history stores only a fixed public topic or a privacy placeholder. Signed-in web patients have their original messages, AI answers, and doctor messages retained for staff review under `RETENTION_HOURS` (24 hours by default). These conversations are bound to the patient account; signing in as another patient starts a separate session. Symptom events for signed-in patients are stored permanently by the existing timeline feature. Telegram/WhatsApp themselves still receive messages typed into those platforms. Regex filters are not comprehensive de-identification.
+Anonymous web chats retain complete questions and answers in browser local storage; the backend stores only a fixed public topic or privacy placeholder. On sign-in, browser history is copied into the authenticated patient conversation and cleared only after every turn is saved. Interrupted imports retry without duplicating messages and remain bound to the original account. Imported browser answers are untrusted text, so source claims and staff roles are not imported. Signed-in messages, AI answers, and doctor messages persist in the database until the conversation is cleared. Signing in again restores the account conversation, including on another device; another patient receives a separate conversation. The session cookie contains only an identifier, not chat text. Symptom events for signed-in patients are stored permanently by the existing timeline feature. Telegram/WhatsApp themselves still receive messages typed into those platforms. Regex filters are not comprehensive de-identification.
 
-Sessions and review/delivery records expire after 24 hours without an update; each retained chat message expires after the configured retention period. Cleanup runs on startup and every five minutes while awake. Expired records are immediately inaccessible through the store, even before cleanup. At most 50 turn snapshots per session are retained. Public knowledge sources persist until withdrawn or revised. Staff should never put personal data in public source text.
+Anonymous server sessions and review/delivery records expire after 24 hours without an update. Signed-in sessions and patient messages do not expire under `RETENTION_HOURS`. Anonymous browser history remains until cleared or successfully transferred on sign-in; clearing browser data also removes it. Cleanup runs on startup and every five minutes while awake. Expired records are immediately inaccessible through the store, even before cleanup. At most 50 server turn snapshots per session are retained; signed-in message history and anonymous browser history retain the full conversation. Public knowledge sources persist until withdrawn or revised. Staff should never put personal data in public source text.
 
 ### Patient management and doctor chat
 
@@ -204,12 +204,15 @@ Add `GROQ_API_KEYS=key1,key2` (or `GROQ_API_KEY` for one key) and
 for automatic fallback, or use `AI_PROVIDER=groq` for Groq only. Groq has
 its own key pool and uses the existing rate-limit, cooldown and logging settings.
 
-Pipeline logs use colored stages and bordered retrieved-chunk panels in the local
-terminal, with timestamps, request IDs, timings, and provider status. Set
-`LOG_SHOW_QUERY=false` to hide the local purple user-query panel; queries are
-excluded from JSON file logs and cloud logging. Set
-`LOG_SHOW_CHUNKS=false` to hide the chunk panels. Rich automatically uses plain
-text when output is redirected. Chunk panels are disabled in cloud mode.
+Pipeline console logs include timestamps, request IDs, timings, and provider status.
+Set `LOG_SHOW_QUERY=true` and `LOG_SHOW_CHUNKS=true` to display user queries and
+retrieved source text on stderr in any environment, including cloud deployments.
+Both settings default to false; `.env.example` and `render.yaml` explicitly enable
+them. Cloud log collectors will retain this console output, which can include
+patient information. Set either flag to false to hide that content. Rich uses
+bordered panels without terminal colors when output is redirected; plain text
+output also supports queries and chunks when Rich is unavailable.
+Queries and chunk text remain excluded from structured JSON file logs.
 Structured JSON logs are written to `runtime/logs/mediagent.jsonl`.
 Files rotate at 5 MB with three backups. Set `LOG_FILE=` for console only.
 Each HTTP response includes `X-Request-ID`; use it to correlate JSON events for

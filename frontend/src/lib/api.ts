@@ -11,6 +11,15 @@ import {
 } from "@/types/api";
 import { z } from "zod";
 import { readSSE } from "@/lib/sse";
+import { anonymousHistory, clearAnonymousHistory, migrateBrowserHistory, saveAnonymousTurn } from "@/lib/browser-history";
+
+let sessionUserId: string | null = null;
+
+async function retainAnonymousAnswer(message: string, requestId: string, answer: ChatAnswer, owner: string | null) {
+  if (owner === null && sessionUserId === null) {
+    await saveAnonymousTurn({ request_id: requestId, question: message, answer, created: Date.now() / 1000 });
+  }
+}
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
 
@@ -94,6 +103,7 @@ export const authApi = {
 // ----------------- Chat & Session API -----------------
 export const chatApi = {
   async streamMessage(message: string, requestId: string, onDraft: (text: string) => void, signal?: AbortSignal): Promise<ChatAnswer> {
+    const owner = sessionUserId;
     const response = await fetch(`${BASE_URL}/api/chat/stream`, {
       method: "POST", headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
       credentials: "include", body: JSON.stringify({ message, request_id: requestId }), signal,
@@ -110,6 +120,7 @@ export const chatApi = {
       if (event === "error") throw new Error(z.object({ error: z.string() }).parse(data).error);
     });
     if (!answer) throw new Error("The response was interrupted. Please retry.");
+    await retainAnonymousAnswer(message, requestId, answer, owner);
     return answer;
   },
   async getConfig(): Promise<ConfigResponse> {
@@ -125,7 +136,29 @@ export const chatApi = {
     const data = await request<unknown>("/api/session", {
       method: "POST",
     });
-    return parseSessionHistory(data);
+    let session = parseSessionHistory(data);
+    sessionUserId = session.user_id;
+    if (session.user_id) {
+      const owner = session.user_id;
+      await migrateBrowserHistory(owner, async turns => {
+        session = parseSessionHistory(await request("/api/history/import", {
+          method: "POST", body: JSON.stringify({ user_id: owner, turns: turns.map(t => ({
+            request_id: t.request_id, question: t.question, answer_text: t.answer.text, created: t.created,
+          })) }),
+        }));
+      });
+      // A second tab may have completed the import while this tab waited for
+      // the browser lock. Reload the authoritative account history either way.
+      session = parseSessionHistory(await request("/api/history", { cache: "no-store" }));
+      if (session.user_id !== owner) throw new Error("Account changed. Refresh to load your conversation.");
+    } else {
+      const saved = anonymousHistory();
+      const ids = new Set(saved.map(t => t.request_id));
+      session = parseSessionHistory({ ...session, turns: [
+        ...session.turns.filter(t => !t.request_id || !ids.has(t.request_id)), ...saved,
+      ].sort((a, b) => (a.created ?? 0) - (b.created ?? 0)) });
+    }
+    return session;
   },
 
   async history() {
@@ -133,6 +166,7 @@ export const chatApi = {
   },
 
   async sendMessage(message: string, requestId?: string): Promise<ChatAnswer> {
+    const owner = sessionUserId;
     const payload = {
       message,
       request_id: requestId || crypto.randomUUID(),
@@ -145,11 +179,13 @@ export const chatApi = {
     if (!parsed.success) {
       throw new Error("Received malformed answer format from clinical assistant.");
     }
+    await retainAnonymousAnswer(message, payload.request_id, parsed.data, owner);
     return parsed.data;
   },
 
   async resetSession(): Promise<void> {
     await request("/api/session", { method: "DELETE" });
+    if (sessionUserId === null) await clearAnonymousHistory();
     await request("/api/session", { method: "POST" });
   },
 };

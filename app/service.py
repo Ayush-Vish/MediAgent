@@ -28,6 +28,47 @@ class ChatService:
             self.store.put(key, 'session', {'turns': [], 'topic': None, 'created': time.time()})
         return token
 
+    def patient_session(self, user, candidate=None):
+        mapping_key = 'patient_session:' + user['id']
+        with self.store.lock(mapping_key):
+            saved = self.store.get(mapping_key)
+            token = saved['token'] if saved else candidate
+            existing = self.store.get(session_key(token)) if token else None
+            if not existing or existing.get('user_id') != user['id']:
+                token = self.create_session()
+            key = session_key(token)
+            with self.store.lock(key):
+                record = self.store.get(key)
+                record['user_id'] = user['id']
+                self.store.put(key, 'session', record, permanent=True)
+            self.store.put(mapping_key, 'patient_session', {'token': token}, permanent=True)
+            return token
+
+    def import_history(self, token, user, turns):
+        key = session_key(token)
+        with self.store.lock(key):
+            session = self.store.get(key)
+            if not session or session.get('user_id') != user['id']:
+                raise LookupError('Start a new conversation for this patient.')
+            for turn in turns:
+                # Stable IDs make retries safe, including partial saves. Browser
+                # content is untrusted: never import staff roles or source claims.
+                identity = hashlib.sha256((user['id'] + str(turn.request_id)).encode()).hexdigest()
+                receipt = 'history_import:' + identity
+                if self.store.get(receipt):
+                    continue
+                answer = {'text': turn.answer_text, 'sources': [], 'evidence': 'none', 'mode': 'imported'}
+                created = min(turn.created, time.time())
+                for index, (role, text) in enumerate([('user', turn.question), ('assistant', turn.answer_text)]):
+                    message_id = f'message:import:{identity}:{index}'
+                    self.store.put(message_id, 'patient_message', {
+                        'id': message_id, 'conversation_id': key, 'user_id': user['id'],
+                        'role': role, 'text': text, 'timestamp': created + index * .000001,
+                        'actor': None, 'answer': answer if role == 'assistant' else None,
+                    }, permanent=True)
+                self.store.put(receipt, 'history_import', {'conversation_id': key}, permanent=True)
+            return self.history(token, user)
+
     @traced('chat')
     def chat(self, token, message, request_id, user=None):
         user_query(message)
@@ -136,12 +177,12 @@ class ChatService:
                 )
 
             # Persist public intent, not arbitrary user prose or personal details.
-            summary = TOPICS[topic][1] if topic else '[Message not retained for privacy]'
+            summary = message if user else TOPICS[topic][1] if topic else '[Message not retained for privacy]'
             session['topic'] = topic
             session['turns'].append({'request_id': request_id, 'question': summary, 'answer': answer,
                                      'created': time.time()})
             session['turns'] = session['turns'][-50:]
-            self.store.put(key, 'session', session)
+            self.store.put(key, 'session', session, permanent=bool(user))
             if user:
                 for role, text in [('user', message), ('assistant', answer['text'])]:
                     self.save_message(key, user['id'], role, text, answer=answer if role == 'assistant' else None)
@@ -157,7 +198,7 @@ class ChatService:
         message = {'id': 'message:' + str(uuid4()), 'conversation_id': conversation,
                    'user_id': user_id, 'role': role, 'text': text,
                    'timestamp': time.time(), 'actor': actor, 'answer': answer}
-        self.store.put(message['id'], 'patient_message', message)
+        self.store.put(message['id'], 'patient_message', message, permanent=True)
         return message
 
     @traced('staff.conversation_history')
@@ -318,12 +359,16 @@ class ChatService:
         messages = [m for m in self.store.list('patient_message')
                     if m['conversation_id'] == key] if user else []
         messages.sort(key=lambda m: (m['timestamp'], m['id']))
-        return {'turns': session['turns'], 'reviews': reviews, 'messages': messages}
+        return {'turns': session['turns'], 'reviews': reviews, 'messages': messages,
+                'user_id': user['id'] if user else None}
 
-    def forget(self, token):
+    def forget(self, token, user=None):
         key = session_key(token)
         self.recent_messages.pop(key, None)
         with self.store.lock(key):
+            session = self.store.get(key)
+            if session and session.get('user_id') and (not user or session['user_id'] != user['id']):
+                raise LookupError('Start a new conversation for this patient.')
             self.store.remove(key)
             for review in self.store.list('review'):
                 if review['session'] == key:

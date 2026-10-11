@@ -11,6 +11,10 @@ services:
         value: 3.12.10
       - key: ENVIRONMENT
         value: cloud
+      - key: LOG_SHOW_QUERY
+        value: true
+      - key: LOG_SHOW_CHUNKS
+        value: true
       - key: DATABASE_URL
         sync: false
       - key: PUBLIC_URL

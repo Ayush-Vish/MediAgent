@@ -1,7 +1,8 @@
 """Small durable store. A single API worker serializes per-session updates.
 
 SQLite is for local development; PostgreSQL persists cloud state across restarts.
-Only sanitized turn snapshots are saved, never LangGraph's raw input state.
+Anonymous turn snapshots are sanitized; authenticated patient messages are durable.
+LangGraph's raw input state is never saved.
 """
 import hashlib
 import json

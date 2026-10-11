@@ -26,7 +26,7 @@ def test_doctor_reply_is_in_same_chat_and_idempotent(client, app, staff):
     other = register(client, 'other@example.com')
     wrong = client.post(f"/api/staff/patients/{other['id']}/messages", headers=staff, json=payload)
     assert wrong.status_code == 404
-    assert client.get('/api/history').status_code == 401
+    assert client.get('/api/history').json()['messages'] == []
     client.post('/api/session')
     assert client.get('/api/history').json()['messages'] == []
 

@@ -9,6 +9,7 @@ import { AuthModal } from "@/components/AuthModal";
 
 export default function Home() {
   const [user, setUser] = useState<UserProfile | null>(null);
+  const [authReady, setAuthReady] = useState(false);
   const [hospitalName, setHospitalName] = useState<string>("Hospital");
   const [portalUrl, setPortalUrl] = useState<string>("");
   const [authOpen, setAuthOpen] = useState<boolean>(false);
@@ -18,6 +19,7 @@ export default function Home() {
     // 1. Check current logged-in user
     authApi.me().then((currentUser) => {
       setUser(currentUser);
+      setAuthReady(true);
     });
 
     // 2. Fetch hospital configuration
@@ -73,12 +75,12 @@ export default function Home() {
       />
 
       <main className="min-h-0 flex-1 flex flex-col">
-        <ChatInterface
+        {authReady && <ChatInterface
           key={user?.id ?? "anonymous"}
           user={user}
           onOpenAuth={() => setAuthOpen(true)}
           hospitalName={hospitalName}
-        />
+        />}
       </main>
 
       <AuthModal
