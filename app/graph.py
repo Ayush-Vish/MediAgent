@@ -47,13 +47,11 @@ def _format_local_response(query: str, citations: list, hospital_name: str) -> s
     if is_hinglish:
         return (
             f"Yahan {hospital_name} ki official guidelines ke anusar zaroori jaankari di gayi hai:\n\n"
-            f"{joined_items}\n\n"
-            f"💡 *Aap aur sawal bhi Hinglish mein pooch sakte hain! Kisi bhi medical query ke liye doctor se salah lein.*"
+            f"{joined_items}"
         )
     return (
         f"Based on official guidelines from {hospital_name}, here is the key information:\n\n"
-        f"{joined_items}\n\n"
-        f"💡 *Aap chahein toh hum Hinglish mein bhi baat kar sakte hain. Bas type karein: \"Hinglish mein samjhao\"!*"
+        f"{joined_items}"
     )
 
 
