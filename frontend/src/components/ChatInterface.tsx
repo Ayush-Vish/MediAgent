@@ -6,21 +6,16 @@ import remarkGfm from "remark-gfm";
 import { ChatMessage, SourceCitation, UserProfile } from "@/types/api";
 import { chatApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
-  AlertTriangle,
   ArrowUp,
   BookOpen,
   Calendar,
   Check,
   Copy,
-  ExternalLink,
   Heart,
   HelpCircle,
   Loader2,
   RotateCcw,
-  ShieldAlert,
   Sparkles,
 } from "lucide-react";
 
@@ -31,19 +26,11 @@ interface ChatInterfaceProps {
 }
 
 const STARTER_PROMPTS = [
-  { text: "How can I book an appointment?", icon: Calendar, color: "text-emerald-500" },
-  { text: "What documents should I bring for an appointment?", icon: BookOpen, color: "text-blue-500" },
-  { text: "What are the patient helpdesk contact hours?", icon: HelpCircle, color: "text-purple-500" },
-  { text: "What is general cough education?", icon: Heart, color: "text-rose-500" },
-  { text: "What is the difference between paracetamol and Dolo?", icon: Sparkles, color: "text-amber-500" },
-];
-
-const HEALTH_FACTS = [
-  { text: "Most adults need at least 7 hours of sleep a night.", source: "CDC", url: "https://www.cdc.gov/sleep/about/index.html" },
-  { text: "Regular physical activity benefits both physical and mental health.", source: "CDC", url: "https://www.cdc.gov/physical-activity-basics/benefits/index.html" },
-  { text: "Washing hands with soap and water for 20 seconds helps prevent the spread of germs.", source: "CDC", url: "https://www.cdc.gov/clean-hands/about/index.html" },
-  { text: "A healthy diet includes a variety of fruits, vegetables, legumes, and whole grains.", source: "WHO", url: "https://www.who.int/news-room/fact-sheets/detail/healthy-diet" },
-  { text: "Seeking shade and wearing protective clothing can help reduce exposure to ultraviolet rays.", source: "CDC", url: "https://www.cdc.gov/skin-cancer/sun-safety/index.html" },
+  { text: "How can I book an appointment?", icon: Calendar },
+  { text: "What documents should I bring for an appointment?", icon: BookOpen },
+  { text: "What are the patient helpdesk contact hours?", icon: HelpCircle },
+  { text: "What is general cough education?", icon: Heart },
+  { text: "What is the difference between paracetamol and Dolo?", icon: Sparkles },
 ];
 
 function createMessage(role: ChatMessage["role"], text: string, answer?: ChatMessage["answer"]): ChatMessage {
@@ -56,30 +43,11 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
   const [loading, setLoading] = useState<boolean>(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>("");
-  const [healthFactIndex, setHealthFactIndex] = useState<number | null>(null);
   const [ready, setReady] = useState(false);
   const [hasError, setHasError] = useState(false);
   const pendingRef = useRef<{ query: string; requestId: string } | null>(null);
   const busyRef = useRef(false);
   const streamRef = useRef<AbortController | null>(null);
-  const lastHealthFactIndexRef = useRef(-1);
-
-  useEffect(() => {
-    if (!loading) {
-      return;
-    }
-    const showNextFact = () => {
-      let next = Math.floor(Math.random() * HEALTH_FACTS.length);
-      if (HEALTH_FACTS.length > 1 && next === lastHealthFactIndexRef.current) {
-        next = (next + 1) % HEALTH_FACTS.length;
-      }
-      lastHealthFactIndexRef.current = next;
-      setHealthFactIndex(next);
-    };
-    showNextFact();
-    const timer = setInterval(showNextFact, 12_000);
-    return () => clearInterval(timer);
-  }, [loading]);
 
   useEffect(() => () => streamRef.current?.abort(), []);
 
@@ -253,38 +221,26 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col max-w-4xl mx-auto w-full px-4 sm:px-6">
+    <div className="flex min-h-0 flex-1 flex-col max-w-3xl mx-auto w-full px-4 sm:px-6">
       {/* Messages Scroll Area */}
-      <div ref={scrollRef} role="log" aria-label="Conversation" aria-live="polite" className="chat-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden py-8 pr-2 flex flex-col gap-8">
+      <div
+        ref={scrollRef}
+        role="log"
+        aria-label="Conversation"
+        aria-live="polite"
+        className="chat-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden py-6 pr-1 flex flex-col gap-6"
+      >
         {messages.length === 0 ? (
-          <div className="my-auto flex flex-col items-center justify-center text-center px-4 max-w-lg mx-auto py-12">
-            <div className="size-16 rounded-2xl bg-primary/5 text-primary flex items-center justify-center font-bold text-3xl mb-4 border border-border/60 shadow-sm">
-              m<span className="text-emerald-500 ml-0.5">+</span>
-            </div>
-            <h1 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
+          <div className="my-auto flex flex-col items-center justify-center text-center px-4 max-w-lg mx-auto py-16">
+            <h1 className="text-2xl sm:text-3xl font-medium tracking-tight text-foreground">
               How can I help you today?
             </h1>
             <p className="mt-2 text-xs sm:text-sm text-muted-foreground leading-relaxed">
-              A little clarity for your next step. Ask about hospital services, medicines, or general health information.
+              Ask about appointments, hospital services, or general health guidance.
             </p>
 
-            {!user && (
-              <div className="mt-5 p-3 rounded-xl border border-dashed border-border bg-muted/20 flex items-center gap-3 text-left">
-                <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-500 shrink-0">
-                  <ShieldAlert className="size-4" />
-                </div>
-                <div className="flex-1">
-                  <p className="text-xs font-semibold text-foreground">Sign in for Emergency Triage & Doctor History</p>
-                  <p className="text-[11px] text-muted-foreground">Emergency contacts will be attached if urgent symptoms occur.</p>
-                </div>
-                <Button size="sm" variant="outline" onClick={onOpenAuth} className="text-xs shrink-0">
-                  Sign In
-                </Button>
-              </div>
-            )}
-
             {/* Starter Prompts */}
-            <div className="mt-8 flex flex-wrap justify-center gap-2 max-w-xl">
+            <div className="mt-8 flex flex-wrap justify-center gap-2 max-w-lg">
               {STARTER_PROMPTS.map((prompt, idx) => {
                 const Icon = prompt.icon;
                 return (
@@ -293,14 +249,27 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
                     type="button"
                     disabled={!ready || loading}
                     onClick={() => handleSend(prompt.text)}
-                    className="inline-flex items-center gap-2 rounded-full border border-border/80 bg-background/60 hover:bg-muted/60 px-3.5 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-all hover:scale-[1.02]"
+                    className="inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-muted/20 hover:bg-muted/50 px-3.5 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-all"
                   >
-                    <Icon className={`size-3.5 ${prompt.color}`} />
+                    <Icon className="size-3 opacity-60" />
                     <span>{prompt.text}</span>
                   </button>
                 );
               })}
             </div>
+
+            {!user && (
+              <p className="mt-8 text-[11px] text-muted-foreground/60">
+                Want emergency contact escalation?{" "}
+                <button
+                  type="button"
+                  onClick={onOpenAuth}
+                  className="underline underline-offset-4 hover:text-foreground transition-colors"
+                >
+                  Sign in
+                </button>
+              </p>
+            )}
           </div>
         ) : (
           messages.map((msg) => {
@@ -308,146 +277,126 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
             const answer = msg.answer;
             const severity = answer?.severity;
 
+            if (isUser) {
+              return (
+                <div key={msg.id} className="flex flex-col items-end gap-1 self-end max-w-[85%]">
+                  <div className="rounded-2xl bg-muted px-4 py-2 text-[14px] leading-relaxed text-foreground">
+                    <p className="whitespace-pre-wrap break-words">
+                      {msg.text === "[Message not retained for privacy]"
+                        ? "Earlier question hidden for privacy"
+                        : msg.text}
+                    </p>
+                  </div>
+                </div>
+              );
+            }
+
             return (
-              <div
-                key={msg.id}
-                className={`chat-message flex shrink-0 gap-3 ${isUser ? "justify-end" : "justify-start"}`}
-              >
-                {!isUser && (
-                  <Avatar className="size-8 shrink-0 border border-border/80 mt-0.5">
-                    <AvatarFallback className="bg-primary text-primary-foreground font-black text-xs">
-                      m+
-                    </AvatarFallback>
-                  </Avatar>
+              <div key={msg.id} className="flex flex-col items-start gap-2 self-start w-full max-w-[95%]">
+                {/* Severity Notices */}
+                {severity && severity.level === "emergency" && (
+                  <div className="w-full rounded-lg border-l-2 border-l-destructive bg-destructive/5 px-3 py-2.5 text-xs">
+                    <div className="font-medium text-destructive flex items-center justify-between">
+                      <span>Immediate Emergency Notice</span>
+                      <span className="text-[10px] text-muted-foreground font-mono">
+                        {Math.round((severity.confidence || 0.95) * 100)}% match
+                      </span>
+                    </div>
+                    <p className="mt-1 text-muted-foreground leading-relaxed">
+                      These symptoms warrant prompt emergency care.
+                      {user && ` Escalated for patient: ${user.name}.`}
+                    </p>
+                  </div>
                 )}
 
-                <div
-                  className={`min-w-0 flex flex-col gap-2 max-w-[88%] sm:max-w-[85%] ${
-                    isUser ? "items-end" : "items-start"
-                  }`}
-                >
-                  {/* Message Label */}
-                  <div className="flex items-center gap-2 text-[11px] text-muted-foreground px-1">
-                    <span className="font-semibold text-foreground">
-                      {isUser ? "You" : msg.role === "staff" ? "Hospital Staff" : "MediAgent"}
-                    </span>
-                    <span>·</span>
-                    <span>
-                      {new Date(msg.timestamp).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </span>
-                  </div>
-
-                  {/* Severity Banner */}
-                  {!isUser && severity && severity.level === "emergency" && (
-                    <div className="w-full rounded-xl border border-destructive bg-destructive/15 text-destructive p-3.5 flex items-start gap-2.5 shadow-sm">
-                      <ShieldAlert className="size-5 shrink-0 text-destructive mt-0.5" />
-                      <div className="flex-1 text-xs">
-                        <div className="font-bold flex items-center gap-1.5 text-destructive text-sm">
-                          🚨 IMMEDIATE EMERGENCY ALERT
-                          <Badge variant="destructive" className="text-[10px] ml-auto">
-                            {Math.round((severity.confidence || 0.95) * 100)}% Confidence
-                          </Badge>
-                        </div>
-                        <p className="mt-1 text-foreground/90 font-medium">
-                          These symptoms warrant prompt medical emergency care.
-                          {user && ` Escalated for patient: ${user.name}.`}
-                        </p>
-                      </div>
+                {severity && severity.level === "severe" && (
+                  <div className="w-full rounded-lg border-l-2 border-l-amber-500 bg-amber-500/5 px-3 py-2.5 text-xs">
+                    <div className="font-medium text-amber-600 dark:text-amber-400 flex items-center justify-between">
+                      <span>Clinical Concern</span>
+                      <span className="text-[10px] text-muted-foreground font-mono">
+                        {Math.round((severity.confidence || 0.8) * 100)}% match
+                      </span>
                     </div>
-                  )}
-
-                  {!isUser && severity && severity.level === "severe" && (
-                    <div className="w-full rounded-xl border border-amber-500/50 bg-amber-500/10 text-amber-600 dark:text-amber-400 p-3 flex items-start gap-2.5 shadow-sm">
-                      <AlertTriangle className="size-4 shrink-0 mt-0.5 text-amber-500" />
-                      <div className="flex-1 text-xs">
-                        <div className="font-semibold flex items-center justify-between">
-                          <span>⚠️ Severe Clinical Concern</span>
-                          <span className="text-[10px]">{Math.round((severity.confidence || 0.8) * 100)}% match</span>
-                        </div>
-                        <p className="mt-0.5 text-foreground/85">
-                          Triage recommends medical consultation without delay.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Message Bubble */}
-                  <div
-                    className={`min-w-0 max-w-full rounded-2xl px-4 py-3 text-[15px] leading-7 ${
-                      isUser
-                        ? "bg-primary text-primary-foreground rounded-br-none shadow-sm"
-                        : "bg-muted/40 border border-border/60 text-foreground rounded-bl-none"
-                    }`}
-                  >
-                    {isUser ? <p className="whitespace-pre-wrap break-words">{
-                      msg.text === "[Message not retained for privacy]" ? "Earlier question hidden for privacy" : msg.text
-                    }</p> : <div className="chat-markdown">
-                      <Markdown remarkPlugins={[remarkGfm]} skipHtml components={{
-                        a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>,
-                        table: ({ children }) => <div className="max-w-full overflow-x-auto"><table>{children}</table></div>,
-                      }}>{msg.text}</Markdown>
-                    </div>}
+                    <p className="mt-1 text-muted-foreground leading-relaxed">
+                      Medical consultation is advised without delay.
+                    </p>
                   </div>
+                )}
 
-                  {/* Sources Chips */}
-                  {loading && msg.role === "assistant" && !answer && <p className="px-1 text-xs text-muted-foreground">Draft · checking sources when complete</p>}
-                  {!isUser && answer?.sources && answer.sources.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mt-1 px-0.5">
-                      {answer.sources.map((src) => (
-                        <a
-                          key={src.id}
-                          href={src.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 rounded-md border border-border/80 bg-background/80 hover:bg-muted/80 px-2.5 py-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors max-w-xs truncate"
-                        >
-                          <span className="font-semibold text-primary">[{src.id}]</span>
-                          <span className="truncate">{src.title}</span>
-                          <ExternalLink className="size-2.5 shrink-0 ml-0.5" />
+                {/* Markdown text */}
+                <div className="text-[14px] leading-relaxed text-foreground chat-markdown w-full">
+                  <Markdown
+                    remarkPlugins={[remarkGfm]}
+                    skipHtml
+                    components={{
+                      a: ({ href, children }) => (
+                        <a href={href} target="_blank" rel="noopener noreferrer">
+                          {children}
                         </a>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Actions & Meta */}
-                  {!isUser && (
-                    <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-0.5 px-1">
-                      <button
-                        type="button"
-                        onClick={() => handleCopy(msg.id, msg.text, answer?.sources)}
-                        className="inline-flex items-center gap-1 hover:text-foreground transition-colors p-1 rounded hover:bg-muted"
-                        title="Copy answer"
-                      >
-                        {copiedId === msg.id ? (
-                          <>
-                            <Check className="size-3 text-emerald-500" />
-                            <span className="text-emerald-500">Copied</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="size-3" />
-                            <span>Copy</span>
-                          </>
-                        )}
-                      </button>
-                      <span>·</span>
-                      <span>{answer?.evidence === "supported" ? "Based on linked sources"
-                        : answer?.route === "emergency" ? "Emergency guidance"
-                        : answer?.evidence === "general" ? "General education · AI assisted" : "General guidance"}</span>
-                    </div>
-                  )}
+                      ),
+                      table: ({ children }) => (
+                        <div className="max-w-full overflow-x-auto my-2">
+                          <table>{children}</table>
+                        </div>
+                      ),
+                    }}
+                  >
+                    {msg.text}
+                  </Markdown>
                 </div>
 
-                {isUser && (
-                  <Avatar className="size-8 shrink-0 border border-border/80 mt-0.5">
-                    <AvatarFallback className="bg-muted text-muted-foreground font-semibold text-xs">
-                      {user ? user.name.charAt(0).toUpperCase() : "You"}
-                    </AvatarFallback>
-                  </Avatar>
+                {/* Source Citations */}
+                {loading && !answer && (
+                  <p className="text-xs text-muted-foreground/60">Searching verified sources…</p>
                 )}
+                {answer?.sources && answer.sources.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {answer.sources.map((src) => (
+                      <a
+                        key={src.id}
+                        href={src.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-muted/20 hover:bg-muted/60 px-2 py-0.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors max-w-xs truncate"
+                      >
+                        <span className="font-mono text-[10px] text-muted-foreground/50">[{src.id}]</span>
+                        <span className="truncate">{src.title}</span>
+                      </a>
+                    ))}
+                  </div>
+                )}
+
+                {/* Micro Action Bar */}
+                <div className="flex items-center gap-2 text-[11px] text-muted-foreground/50 pt-0.5">
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(msg.id, msg.text, answer?.sources)}
+                    className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
+                    title="Copy response"
+                  >
+                    {copiedId === msg.id ? (
+                      <>
+                        <Check className="size-3 text-emerald-500" />
+                        <span className="text-emerald-500">Copied</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="size-3" />
+                        <span>Copy</span>
+                      </>
+                    )}
+                  </button>
+                  <span>·</span>
+                  <span>
+                    {answer?.evidence === "supported"
+                      ? "Verified sources"
+                      : answer?.route === "emergency"
+                      ? "Emergency guidance"
+                      : answer?.evidence === "general"
+                      ? "General education"
+                      : "Hospital guidance"}
+                  </span>
+                </div>
               </div>
             );
           })
@@ -455,57 +404,52 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
 
         {/* Loading Indicator */}
         {loading && (
-          <div className="flex gap-3 items-start text-xs text-muted-foreground py-2 px-1">
-            <Loader2 aria-hidden="true" className="size-4 shrink-0 animate-spin text-primary mt-0.5" />
-            <p role="status" className="max-w-xl rounded-lg border border-border/70 bg-muted/30 px-3 py-2 leading-relaxed">
-              <span className="font-medium text-foreground">Health fact: </span>
-              {HEALTH_FACTS[healthFactIndex ?? 0].text}{" "}
-              <a href={HEALTH_FACTS[healthFactIndex ?? 0].url} target="_blank" rel="noopener noreferrer"
-                className="underline underline-offset-2 hover:text-foreground">
-                {HEALTH_FACTS[healthFactIndex ?? 0].source}
-              </a>
-            </p>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground/70 py-2">
+            <Loader2 className="size-3.5 animate-spin" />
+            <span>{statusMessage || "Searching hospital guidance…"}</span>
           </div>
         )}
       </div>
 
       {/* Composer Section */}
-      <div className="shrink-0 pt-3 pb-4 sm:pb-5">
-        {!loading && statusMessage && <p role={hasError ? "alert" : "status"}
-          className={`mb-3 rounded-xl border p-3 text-sm ${hasError ? "border-destructive/40 text-destructive" : "border-border text-muted-foreground"}`}>
-          {statusMessage}
-        </p>}
-        <div className="relative rounded-2xl border border-border/80 bg-card/80 backdrop-blur-sm shadow-sm focus-within:border-primary/60 transition-all p-2 flex flex-col gap-2">
+      <div className="shrink-0 pt-2 pb-4 sm:pb-6">
+        {!loading && statusMessage && (
+          <p
+            role={hasError ? "alert" : "status"}
+            className={`mb-2 rounded-lg border px-3 py-2 text-xs ${
+              hasError
+                ? "border-destructive/30 text-destructive bg-destructive/5"
+                : "border-border/60 text-muted-foreground"
+            }`}
+          >
+            {statusMessage}
+          </p>
+        )}
+
+        <div className="relative rounded-2xl border border-border/60 bg-muted/20 focus-within:border-foreground/20 focus-within:bg-background focus-within:ring-1 focus-within:ring-foreground/5 transition-all p-2 flex flex-col gap-1.5">
           <textarea
             ref={textareaRef}
-            rows={2}
+            rows={1}
             aria-label="Message MediAgent"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             disabled={loading || !ready}
-            placeholder={`Message MediAgent (e.g. describe symptoms or ask questions about ${hospitalName})...`}
-            className="w-full resize-none bg-transparent px-2.5 py-1 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+            placeholder={`Ask ${hospitalName} guidance or describe symptoms…`}
+            className="w-full resize-none bg-transparent px-2 py-1 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none min-h-[36px] max-h-36"
           />
 
-          <div className="flex items-center justify-between px-1">
-            <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-              <span className="flex items-center gap-1">
-                <Heart className="size-3 text-rose-500" />
-                Hospital &amp; Symptom Guidance
-              </span>
+          <div className="flex items-center justify-between px-1 pt-0.5">
+            <div className="flex items-center gap-2 text-[11px] text-muted-foreground/50">
               {messages.length > 0 && (
-                <>
-                  <span>·</span>
-                  <button
-                    type="button"
-                    onClick={handleReset}
-                    className="hover:text-foreground inline-flex items-center gap-1 transition-colors"
-                  >
-                    <RotateCcw className="size-3" />
-                    New Chat
-                  </button>
-                </>
+                <button
+                  type="button"
+                  onClick={handleReset}
+                  className="hover:text-foreground inline-flex items-center gap-1 transition-colors"
+                >
+                  <RotateCcw className="size-3" />
+                  <span>Clear</span>
+                </button>
               )}
             </div>
 
@@ -515,19 +459,19 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
               aria-label="Send message"
               disabled={loading || !ready || !input.trim()}
               onClick={() => handleSend()}
-              className="size-8 rounded-full bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40"
+              className="size-7 rounded-full bg-foreground text-background hover:opacity-90 disabled:opacity-20 transition-opacity"
             >
               {loading ? (
-                <Loader2 className="size-4 animate-spin" />
+                <Loader2 className="size-3.5 animate-spin" />
               ) : (
-                <ArrowUp className="size-4" />
+                <ArrowUp className="size-3.5" />
               )}
             </Button>
           </div>
         </div>
 
-        <p className="mt-2 text-center text-[10px] text-muted-foreground">
-          Independent clinical demo for {hospitalName}. For immediate life-threatening symptoms, dial emergency services directly.
+        <p className="mt-2 text-center text-[10px] text-muted-foreground/40 font-light">
+          Independent assistant for {hospitalName}. For medical emergencies, contact emergency services.
         </p>
       </div>
     </div>
