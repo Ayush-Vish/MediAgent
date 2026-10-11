@@ -33,6 +33,27 @@ const STARTER_PROMPTS = [
   { text: "What is the difference between paracetamol and Dolo?", icon: Sparkles },
 ];
 
+const HEALTH_FACTS = [
+  { fact: "Walking briskly for 30 minutes daily can lower cardiovascular disease risk by up to 35%.", source: "WHO" },
+  { fact: "During deep sleep, the brain's glymphatic system flushes out toxic metabolic waste.", source: "NIH" },
+  { fact: "About 70% of your body's immune cells reside within your gut microbiome.", source: "Johns Hopkins" },
+  { fact: "Mild dehydration of just 1–2% body weight can impair focus, memory, and energy levels.", source: "CDC" },
+  { fact: "Antibiotics only kill bacteria, not viruses—they do not cure common colds, flu, or viral sore throats.", source: "CDC" },
+  { fact: "The 20-20-20 rule helps eye strain: every 20 minutes, look at an object 20 feet away for 20 seconds.", source: "AAO" },
+  { fact: "Spending 20 minutes in green spaces or nature significantly lowers cortisol (stress hormone) levels.", source: "Harvard Health" },
+  { fact: "Washing hands with soap and water for 20 seconds reduces diarrheal illnesses by up to 30%.", source: "CDC" },
+  { fact: "A 2-minute movement break every 30 minutes of sitting helps stabilize blood sugar and insulin.", source: "Diabetes Care" },
+  { fact: "Adults need 7–9 hours of consistent sleep each night for optimal immune and heart function.", source: "AHA" },
+];
+
+function getRandomHealthFact(lastIndex: number): { fact: typeof HEALTH_FACTS[0]; index: number } {
+  let nextIndex = Math.floor(Math.random() * HEALTH_FACTS.length);
+  if (HEALTH_FACTS.length > 1 && nextIndex === lastIndex) {
+    nextIndex = (nextIndex + 1) % HEALTH_FACTS.length;
+  }
+  return { fact: HEALTH_FACTS[nextIndex], index: nextIndex };
+}
+
 function createMessage(role: ChatMessage["role"], text: string, answer?: ChatMessage["answer"]): ChatMessage {
   return { id: crypto.randomUUID(), role, text, answer, timestamp: Date.now() };
 }
@@ -43,13 +64,27 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
   const [loading, setLoading] = useState<boolean>(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>("");
+  const [currentFact, setCurrentFact] = useState<typeof HEALTH_FACTS[0] | null>(null);
   const [ready, setReady] = useState(false);
   const [hasError, setHasError] = useState(false);
   const pendingRef = useRef<{ query: string; requestId: string } | null>(null);
   const busyRef = useRef(false);
   const streamRef = useRef<AbortController | null>(null);
+  const lastFactIndexRef = useRef(-1);
 
   useEffect(() => () => streamRef.current?.abort(), []);
+
+  useEffect(() => {
+    if (!loading) return;
+
+    const interval = setInterval(() => {
+      const next = getRandomHealthFact(lastFactIndexRef.current);
+      lastFactIndexRef.current = next.index;
+      setCurrentFact(next.fact);
+    }, 6500);
+
+    return () => clearInterval(interval);
+  }, [loading]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -145,8 +180,10 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
       pendingRef.current = { query, requestId: crypto.randomUUID() };
       setMessages((prev) => [...prev, userMsg]);
     }
+    const initial = getRandomHealthFact(lastFactIndexRef.current);
+    lastFactIndexRef.current = initial.index;
+    setCurrentFact(initial.fact);
     setLoading(true);
-    setStatusMessage("Finding sources and preparing your answer…");
 
     const draftMessage = createMessage("assistant", "");
     const controller = new AbortController();
@@ -158,7 +195,6 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
           const others = previous.filter(message => message.id !== draftMessage.id);
           return text ? [...others, { ...draftMessage, text }] : others;
         });
-        setStatusMessage(text ? "Generating answer…" : "Preparing your answer…");
       }, controller.signal);
       setMessages(previous => [...previous.filter(message => message.id !== draftMessage.id),
         { ...draftMessage, text: answer.text, answer }]);
@@ -402,11 +438,21 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
           })
         )}
 
-        {/* Loading Indicator */}
+        {/* Loading Indicator with Random Health Fact */}
         {loading && (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground/70 py-2">
-            <Loader2 className="size-3.5 animate-spin" />
-            <span>{statusMessage || "Searching hospital guidance…"}</span>
+          <div className="flex items-start gap-2.5 text-xs text-muted-foreground/80 py-2 px-3 rounded-xl border border-border/40 bg-muted/20 max-w-lg">
+            <Loader2 className="size-3.5 animate-spin mt-0.5 shrink-0 text-foreground/70" />
+            <div className="leading-relaxed">
+              {currentFact ? (
+                <>
+                  <span className="font-medium text-foreground">Health Fact: </span>
+                  <span>{currentFact.fact}</span>
+                  <span className="ml-1 text-[10px] text-muted-foreground/60">({currentFact.source})</span>
+                </>
+              ) : (
+                <span>Loading…</span>
+              )}
+            </div>
           </div>
         )}
       </div>
