@@ -12,11 +12,12 @@ import zipfile
 import xml.etree.ElementTree as ET
 from datetime import date
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 from bs4 import BeautifulSoup
 
+from app.chunker import recursive_chunk_text
 from app.config import ROOT, Settings
 from app.knowledge import Knowledge
 from app.schemas import SourceInput
@@ -38,7 +39,6 @@ def fetch_html(url):
         with httpx.stream('GET', url, timeout=30, follow_redirects=False,
                           headers={'User-Agent': 'MediAgentDemo/1.0 (public patient information)'}) as response:
             if response.is_redirect:
-                from urllib.parse import urljoin
                 url = urljoin(url, response.headers['location'])
                 continue
             response.raise_for_status()
@@ -51,9 +51,6 @@ def fetch_html(url):
                     raise ValueError('Source exceeds 5 MB')
             return url, bytes(content)
     raise ValueError('Too many redirects')
-
-
-from app.chunker import recursive_chunk_text
 
 
 def html_text(content):
@@ -114,10 +111,87 @@ def medlineplus_topics():
         yield title[:180], topic_url, text
 
 
+# A bounded starter corpus of public patient medicine information, not a formulary.
+MEDICINES = ('paracetamol-for-adults', 'ibuprofen-for-adults', 'cetirizine',
+             'amoxicillin', 'metformin', 'omeprazole', 'atorvastatin', 'salbutamol-inhaler')
+
+
+def medicine_links(content, root_url):
+    """Only immediate NHS subpages belonging to the selected medicine."""
+    root = urlsplit(root_url)
+    urls = set()
+    for link in BeautifulSoup(content, 'html.parser').select('a[href]'):
+        parsed = urlsplit(urljoin(root_url, link['href']))
+        suffix = parsed.path.removeprefix(root.path).strip('/')
+        if (parsed.scheme == 'https' and parsed.netloc == root.netloc
+                and parsed.path.startswith(root.path) and suffix and '/' not in suffix
+                and not parsed.query):
+            urls.add(parsed._replace(fragment='').geturl())
+    return sorted(urls)
+
+
+def import_pages(knowledge, title, url, pages, category, checked_at):
+    """Replace one document's chunks; never retire records for a failed fetch."""
+    records = []
+    prefix = title + ' — '
+    for page, text in pages:
+        for index, piece in enumerate(chunks(text), 1):
+            records.append(SourceInput(title=f'{prefix}page {page or "web"}, chunk {index}',
+                                       url=url, text=piece, category=category,
+                                       checked_at=checked_at, page=page))
+    if not records:
+        raise ValueError(f'No usable text from {url}; previous chunks retained')
+    active_ids = {knowledge.save(record, actor='offline ingestion') for record in records}
+    # Retire removed chunks from a previous import; preserve unrelated curated sources.
+    for old in knowledge.sources():
+        if old['url'] == url and old['title'].startswith(prefix) and old['id'] not in active_ids:
+            old['approved'] = False
+            old['conflict'] = True
+            knowledge.store.put(old['id'], 'source', old, permanent=True)
+    return len(records)
+
+
+def archive_html(url, content):
+    raw = ROOT / 'data/raw'
+    raw.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha256(content).hexdigest()
+    (raw / f'{digest}.html').write_bytes(content)
+    (raw / f'{digest}.json').write_text(json.dumps({
+        'url': url, 'fetched_at': str(date.today()), 'sha256': digest,
+    }), encoding='utf-8')
+
+
+def ingest_medicines(knowledge, checked_at):
+    count = pages = 0
+    for medicine in MEDICINES:
+        root_url = f'https://www.nhs.uk/medicines/{medicine}/'
+        url, content = fetch_html(root_url)
+        links = medicine_links(content, root_url)
+        for requested_url in [url, *links]:
+            page_url, page_content = (url, content) if requested_url == url else fetch_html(requested_url)
+            soup = BeautifulSoup(page_content, 'html.parser')
+            heading = soup.find('h1')
+            if not heading or not heading.get_text(strip=True):
+                raise ValueError(f'Missing medicine page title: {page_url}')
+            # Use the URL path for stable identity even when NHS changes a heading.
+            section = urlsplit(page_url).path.removeprefix(urlsplit(root_url).path).strip('/') or 'overview'
+            title = f'NHS {medicine.replace("-", " ")} — {section.replace("-", " ")}'[:150]
+            text = title + '\n' + html_text(page_content)
+            archive_html(page_url, page_content)
+            added = import_pages(knowledge, title, page_url, [(None, text)], 'health', checked_at)
+            count += added
+            pages += 1
+            print(f'medicine.import url={page_url} chunks={added} status=pending', flush=True)
+    print(f'Imported {count} chunks from {pages} NHS medicine pages as pending. '
+          'Review in /staff, then run python -m scripts.index_vectors against the same database.')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument('--fetch-cmc', action='store_true')
+    group.add_argument('--fetch-medicines', action='store_true',
+                       help='Import NHS starter medicine pages and their patient-information subpages')
     group.add_argument('--fetch-medlineplus', action='store_true',
                        help='Import the current MedlinePlus public health-topic dataset')
     group.add_argument('--url')
@@ -131,6 +205,9 @@ def main():
     store = Store(settings.database_url, settings.retention_hours)
     knowledge = Knowledge(store, settings)
     sources = []
+    if args.fetch_medicines:
+        ingest_medicines(knowledge, args.checked_at)
+        return
     if args.fetch_medlineplus:
         count = 0
         for title, url, text in medlineplus_topics():
@@ -151,29 +228,11 @@ def main():
             parser.error('--url requires --title')
         for title, requested_url in (MANIFEST if args.fetch_cmc else [(args.title, args.url)]):
             url, content = fetch_html(requested_url)
-            raw = ROOT / 'data/raw'
-            raw.mkdir(parents=True, exist_ok=True)
-            digest = hashlib.sha256(content).hexdigest()
-            (raw / f'{digest}.html').write_bytes(content)
-            (raw / f'{digest}.json').write_text(json.dumps({'url': url, 'fetched_at': str(date.today()), 'sha256': digest}), encoding='utf-8')
+            archive_html(url, content)
             sources.append((title, url, [(None, html_text(content))]))
     count = 0
     for title, url, pages in sources:
-        active_ids = set()
-        prefix = title + ' — '
-        for page, text in pages:
-            for index, piece in enumerate(chunks(text), 1):
-                name = f'{prefix}page {page or "web"}, chunk {index}'
-                key = knowledge.save(SourceInput(title=name, url=url, text=piece, category=args.category,
-                                                 checked_at=args.checked_at, page=page), actor='offline ingestion')
-                active_ids.add(key)
-                count += 1
-        # Retire removed chunks from a previous import; preserve unrelated curated sources.
-        for old in knowledge.sources():
-            if old['url'] == url and old['title'].startswith(prefix) and old['id'] not in active_ids:
-                old['approved'] = False
-                old['conflict'] = True
-                store.put(old['id'], 'source', old, permanent=True)
+        count += import_pages(knowledge, title, url, pages, args.category, args.checked_at)
     print(f'Imported {count} chunks. Review and approve them in /staff before they can answer questions.')
 
 

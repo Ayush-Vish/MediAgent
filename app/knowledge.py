@@ -33,7 +33,7 @@ TOPICS = {
     'international': ('international foreign passport visa iro embassy abroad', 'What are the guidelines for international patients?'),
     'cough': ('cough coughing', 'What is general cough education?'),
     'fever': ('fever temperature flu cold chills body ache', 'What is general fever education?'),
-    'medicine': ('medicine medication paracetamol acetaminophen dolo doloe cetirizine cetrazine citrazine antihistamine allergy difference brand active ingredient pain fever', 'What is the general medicine information for this medicine?'),
+    'medicine': ('medicine medication ibuprofen amoxicillin metformin omeprazole atorvastatin salbutamol paracetamol acetaminophen dolo doloe cetirizine cetrazine citrazine antihistamine allergy difference brand active ingredient pain fever', 'What is the general medicine information for this medicine?'),
 }
 
 

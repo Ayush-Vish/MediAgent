@@ -4,6 +4,7 @@ WORKDIR /app
 COPY requirements.txt requirements-rag.txt ./
 RUN pip install --no-cache-dir -r requirements-rag.txt
 COPY app ./app
+COPY scripts ./scripts
 COPY web ./web
 COPY data/sources.json ./data/sources.json
 RUN useradd --create-home mediagent && mkdir runtime && chown -R mediagent:mediagent /app

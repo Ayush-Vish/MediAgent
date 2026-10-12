@@ -59,6 +59,34 @@ Import the current MedlinePlus public health-topic dataset (about 2,000 English 
 
 This downloads the official compressed XML from MedlinePlus, keeps the topic URL and alternate names, and writes the chunks to the local database as **pending**. Staff must review and approve them before retrieval can use them. This dataset is health education, not a complete medicine formulary or a source for personal diagnosis, dosing, or prescribing. Drug labels and hospital-approved medication protocols should be ingested separately after licensing and clinical review.
 
+Import the NHS medicine starter corpus:
+
+```sh
+python -m scripts.ingest --fetch-medicines
+# Review and approve imported chunks in /staff, then:
+python -m scripts.index_vectors
+```
+
+This repeatable pipeline imports paracetamol, ibuprofen, cetirizine, amoxicillin,
+metformin, omeprazole, atorvastatin, and salbutamol inhaler information, including
+linked NHS patient-information subpages. It logs each URL and chunk count, keeps
+raw HTML with SHA-256 provenance under `data/raw/`, and writes **pending** records
+into `DATABASE_URL`. Reimports keep stable IDs, require renewed approval for
+changed content, and retire removed chunks. A failed or empty page does not retire
+its previous chunks; the command exits with an error and can be rerun.
+
+Use the **same persistent database** as the API for production imports. After
+staff approval, indexing uses `QDRANT_URL`, `QDRANT_API_KEY`, and
+`QDRANT_COLLECTION` (default `mediagent`). Import alone does not publish vectors.
+Both commands are available in the Docker image; indexing hosts need
+`requirements-rag.txt`. Rerun ingestion when refreshing the data, review changes,
+and then rerun indexing before the 90-day source expiry. Avoid overlapping runs.
+
+Content attribution: [NHS website](https://www.nhs.uk/medicines/), retrieved with
+its page URL and fetch date. Review applicable [NHS content terms](https://www.nhs.uk/our-policies/terms-and-conditions/)
+before redistribution. This is a bounded education corpus, not a prescribing
+formulary; existing personal dosing and treatment guards still apply.
+
 For a public PDF, install the heavier offline parser separately:
 
 ```powershell
