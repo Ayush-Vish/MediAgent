@@ -87,6 +87,31 @@ its page URL and fetch date. Review applicable [NHS content terms](https://www.n
 before redistribution. This is a bounded education corpus, not a prescribing
 formulary; existing personal dosing and treatment guards still apply.
 
+Download official openFDA bulk medicine reference data separately:
+
+```sh
+python -m scripts.download_openfda --scope medicine
+# Rerun the same command to resume interrupted transfers and verify completed ZIPs.
+# Inspect the full export size before choosing a sufficiently large destination:
+python -m scripts.download_openfda --scope all --plan
+python -m scripts.download_openfda --scope all --output /path/to/large-disk/openfda
+```
+
+The medicine scope includes drug labels, NDC, Drugs@FDA, Orange Book,
+enforcement recalls, and shortages. It excludes adverse-event reports. Downloads
+stay compressed under ignored `data/raw/openfda/`, grouped by dataset and export
+date, with the official `download.json` manifest and SHA-256 receipts. The manifest
+is pinned until `--refresh` is supplied. The downloader reserves 1 GiB of disk
+space, checks ZIP CRCs, and resumes partial transfers when the server supports
+ETag-validated range requests; otherwise it restarts that archive. Quarterly export
+paths remain distinct. Completed files are checked against their recorded hashes.
+
+These are raw regulatory datasets, **not approved chat sources**. Downloading does
+not import them into the application database or Qdrant. Labels include prescribing
+information and require an explicit transformation and review step before use in
+patient-facing answers. Keep [openFDA attribution, license, and terms](https://open.fda.gov/license/)
+with downstream datasets. No automatic extraction or embedding job runs on Render.
+
 For a public PDF, install the heavier offline parser separately:
 
 ```powershell
