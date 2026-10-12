@@ -11,10 +11,14 @@ from contextlib import contextmanager
 from pathlib import Path
 from threading import RLock
 
-from sqlalchemy import Column, Float, MetaData, String, Table, Text, create_engine, delete, select, text
+from sqlalchemy import (
+    JSON, Column, Float, Index, MetaData, String, Table, Text, cast, create_engine,
+    delete, func, literal_column, select, text,
+)
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.pool import StaticPool
+from sqlalchemy.schema import CreateIndex
 
 
 class Store:
@@ -36,7 +40,21 @@ class Store:
                              Column('kind', String(30), nullable=False, index=True),
                              Column('value', Text, nullable=False),
                              Column('expires', Float, nullable=True, index=True))
+
+        def attribute(name):
+            if self.engine.dialect.name == 'sqlite':
+                return func.json_extract(self.records.c.value, literal_column("'$." + name + "'"))
+            return cast(self.records.c.value, JSON)[literal_column("'" + name + "'")].as_string()
+
+        self.source_hospital = attribute('hospital_id')
+        self.source_category = attribute('category')
+        self.source_approved = attribute('approved') == (1 if self.engine.dialect.name == 'sqlite' else 'true')
+        predicate = (self.records.c.kind == 'source') & self.source_approved
         meta.create_all(self.engine)
+        index = Index('mediagent_approved_sources', self.source_hospital, self.source_category,
+                      sqlite_where=predicate, postgresql_where=predicate)
+        with self.engine.begin() as conn:
+            conn.execute(CreateIndex(index, if_not_exists=True))
         if self.engine.dialect.name == 'postgresql':
             with self.engine.begin() as conn:
                 conn.execute(text('ALTER TABLE mediagent_records ENABLE ROW LEVEL SECURITY'))
@@ -67,12 +85,45 @@ class Store:
         with self.engine.begin() as conn:
             conn.execute(statement)
 
+    def get_many(self, keys):
+        if not keys:
+            return {}
+        with self.engine.connect() as conn:
+            rows = conn.execute(select(self.records).where(self.records.c.key.in_(keys))).mappings().all()
+        now = time.time()
+        return {row['key']: json.loads(row['value']) for row in rows
+                if row['expires'] is None or row['expires'] > now}
+
+    def put_many(self, records):
+        """Atomically upsert a bounded batch of permanent offline ingestion records."""
+        if not records:
+            return
+        data = [dict(key=key, kind=kind, value=json.dumps(value), expires=None)
+                for key, kind, value in records]
+        insert = sqlite_insert if self.engine.dialect.name == 'sqlite' else pg_insert
+        statement = insert(self.records)
+        statement = statement.on_conflict_do_update(
+            index_elements=['key'], set_={name: getattr(statement.excluded, name)
+                                         for name in ('kind', 'value', 'expires')})
+        with self.engine.begin() as conn:
+            conn.execute(statement, data)
+
     def list(self, kind):
         with self.engine.connect() as conn:
             rows = conn.execute(select(self.records).where(self.records.c.kind == kind)).mappings().all()
         now = time.time()
         return [dict(json.loads(row['value']), id=row['key']) for row in rows
                 if row['expires'] is None or row['expires'] > now]
+
+    def approved_sources(self, hospital_id, category):
+        """Filter indexed approval metadata before reading large pending corpora."""
+        statement = select(self.records.c.value).where(
+            self.records.c.kind == 'source', self.source_approved,
+            self.source_hospital == hospital_id, self.source_category == category,
+            (self.records.c.expires.is_(None) | (self.records.c.expires > time.time())))
+        with self.engine.connect() as conn:
+            values = conn.execute(statement).scalars().all()
+        return [json.loads(value) for value in values]
 
     def remove(self, key):
         with self.engine.begin() as conn:

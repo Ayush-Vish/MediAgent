@@ -112,6 +112,31 @@ information and require an explicit transformation and review step before use in
 patient-facing answers. Keep [openFDA attribution, license, and terms](https://open.fda.gov/license/)
 with downstream datasets. No automatic extraction or embedding job runs on Render.
 
+Chunk and ingest the downloaded medicine reference archives into local SQLite:
+
+```sh
+python -m scripts.ingest_openfda
+```
+
+This streams `results` from verified ZIPs without extracting whole files, keeps
+label sections separate, and uses the existing recursive chunker with 180-word
+chunks and 30-word overlap where layout permits. Every chunk includes record
+identity, medicine names when available, and the export date. Source links point
+to the official archive with a record-number fragment; the saved archive receipt
+and database checkpoint retain the full SHA-256 digest. Label HTML tables are
+converted to readable text and retained alongside their other sections.
+
+The command imports all six downloaded medicine reference datasets into
+`DATABASE_URL` (local SQLite only; default `runtime/mediagent.db`). Sources are
+permanent and **pending**, so ingestion does not publish answers or vectors.
+Archive checkpoints skip finished work; interrupted archives can be rerun with
+stable source IDs. Different archive checksums represent separate immutable
+snapshots, not automatic updates to approved clinical sources. Large corpora can
+produce millions of chunks; retain enough disk space for the database. Progress
+logs include record and chunk counts. Retrieval filters approved sources in the
+database through a partial index before loading text into memory. Run only one
+import process at a time.
+
 For a public PDF, install the heavier offline parser separately:
 
 ```powershell

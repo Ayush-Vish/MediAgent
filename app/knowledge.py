@@ -70,25 +70,38 @@ class Knowledge:
             self.save(SourceInput(**source), actor='bundled public-source demo', approved=True)
 
     def save(self, source, actor, approved=False):
-        data = source.model_dump(mode='json')
-        data['url'] = str(source.url)
-        key = source_key(data, self.settings.hospital_id)
-        digest = hashlib.sha256(source.text.encode()).hexdigest()
-        old = self.store.get(key)
-        if old and all(old.get(k) == v for k, v in data.items()):
-            return key
-        data.update(id=key, hospital_id=self.settings.hospital_id, digest=digest,
-                    approved=approved, reviewed_by=actor, revision=(old or {}).get('revision', 0) + 1)
-        self.store.put(key, 'source', data, permanent=True)
-        return key
+        return self.save_many([source], actor, approved)[0]
+
+    def save_many(self, sources, actor, approved=False):
+        """Save a bounded batch with the same approval/revision rules as single imports."""
+        incoming = {}
+        keys = []
+        for source in sources:
+            data = source.model_dump(mode='json')
+            data['url'] = str(source.url)
+            key = source_key(data, self.settings.hospital_id)
+            keys.append(key)
+            incoming[key] = data
+        previous = self.store.get_many(list(incoming))
+        records = []
+        for key, data in incoming.items():
+            old = previous.get(key)
+            if old and all(old.get(k) == v for k, v in data.items()):
+                continue
+            data.update(id=key, hospital_id=self.settings.hospital_id,
+                        digest=hashlib.sha256(data['text'].encode()).hexdigest(),
+                        approved=approved, reviewed_by=actor, revision=(old or {}).get('revision', 0) + 1)
+            records.append((key, 'source', data))
+        self.store.put_many(records)
+        return keys
 
     def sources(self):
         return [s for s in self.store.list('source') if s['hospital_id'] == self.settings.hospital_id]
 
     def active(self, category):
         today = date.today()
-        return [s for s in self.sources() if s['approved'] and not s.get('conflict')
-                and s['category'] == category and not INJECTION.search(normalize(s['text']))
+        return [s for s in self.store.approved_sources(self.settings.hospital_id, category)
+                if not s.get('conflict') and not INJECTION.search(normalize(s['text']))
                 and 0 <= (today - date.fromisoformat(s['checked_at'])).days <= self.settings.source_max_age_days]
 
     @traced('retrieval')
