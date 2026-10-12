@@ -53,6 +53,8 @@ class Store:
         meta.create_all(self.engine)
         index = Index('mediagent_approved_sources', self.source_hospital, self.source_category,
                       sqlite_where=predicate, postgresql_where=predicate)
+        # PostgreSQL JSON expressions do not infer their owning table for Index.
+        self.records.append_constraint(index)
         with self.engine.begin() as conn:
             conn.execute(CreateIndex(index, if_not_exists=True))
         if self.engine.dialect.name == 'postgresql':
