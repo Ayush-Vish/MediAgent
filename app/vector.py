@@ -71,12 +71,12 @@ class HybridIndex:
                 sparse_vectors_config={'sparse': models.SparseVectorParams(modifier=models.Modifier.IDF)}
             )
         if self.settings.qdrant_url:
-            self.client.create_payload_index(name, 'approved', models.PayloadSchemaType.BOOL)
+            schema = self.client.get_collection(name).payload_schema
+            if 'approved' not in schema:
+                self.client.create_payload_index(name, 'approved', models.PayloadSchemaType.BOOL)
             for field in ('hospital_id', 'category', 'doc_id', 'source_id', 'chunk_id'):
-                try:
+                if field not in schema:
                     self.client.create_payload_index(name, field, models.PayloadSchemaType.KEYWORD)
-                except Exception:
-                    pass
         self._collection_ready = True
 
     def index(self, sources, *, pre_chunked=False):
