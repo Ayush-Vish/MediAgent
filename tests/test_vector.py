@@ -11,7 +11,7 @@ from app.vector import HybridIndex
 
 
 class DenseFixture:
-    def embed(self, texts):
+    def embed(self, texts, **kwargs):
         for _ in texts:
             yield np.array([1.0] + [0.0] * 383)
 
@@ -20,7 +20,7 @@ class DenseFixture:
 
 
 class SparseFixture:
-    def embed(self, texts):
+    def embed(self, texts, **kwargs):
         for _ in texts:
             yield SimpleNamespace(indices=np.array([1, 3]), values=np.array([1.0, 0.5]))
 
@@ -47,5 +47,42 @@ def test_real_qdrant_upsert_fusion_and_scope(settings):
         assert index.client.count(settings.qdrant_collection).count == 3
         assert index.search('booking', 'hospital') == ['one']
         assert index.search('education', 'health') == ['two']
+    finally:
+        index.client.close()
+
+
+def test_pending_points_are_uploaded_but_not_returned_to_patients(settings):
+    index = HybridIndex.__new__(HybridIndex)
+    index.settings = settings
+    index.client = QdrantClient(':memory:')
+    index.dense, index.sparse, index.reranker = DenseFixture(), SparseFixture(), None
+    try:
+        count = index.index([
+            {'id': 'reviewed', 'title': 'Medicine', 'text': 'Reviewed general medicine information.',
+             'category': 'health', 'approved': True},
+            {'id': 'pending', 'title': 'Medicine', 'text': 'Pending FDA medicine information.',
+             'category': 'health', 'approved': False},
+        ], pre_chunked=True)
+        assert count == 2
+        assert index.client.count(settings.qdrant_collection).count == 2
+        assert index.search('medicine', 'health') == ['reviewed']
+    finally:
+        index.client.close()
+
+
+def test_index_streams_uploads_before_consuming_entire_corpus(settings):
+    index = HybridIndex.__new__(HybridIndex)
+    index.settings = settings
+    index.client = QdrantClient(':memory:')
+    index.dense, index.sparse, index.reranker = DenseFixture(), SparseFixture(), None
+    def sources():
+        for number in range(130):
+            if number == 64:
+                assert index.client.count(settings.qdrant_collection).count >= 64
+            yield {'id': str(number), 'title': 'Medicine', 'text': 'Public medicine information.', 'category': 'health'}
+    try:
+        assert index.index(sources(), pre_chunked=True) == 130
+        assert index.index(sources(), pre_chunked=True) == 130
+        assert index.client.count(settings.qdrant_collection).count == 130
     finally:
         index.client.close()

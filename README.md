@@ -137,6 +137,35 @@ logs include record and chunk counts. Retrieval filters approved sources in the
 database through a partial index before loading text into memory. Run only one
 import process at a time.
 
+Upload a capacity-bounded medicine corpus to Qdrant Cloud after recursive chunking:
+
+```sh
+python -m scripts.upload_openfda --env-file MediAgent.env
+```
+
+Set `QDRANT_URL`, `QDRANT_API_KEY`, and `QDRANT_COLLECTION` in that local credential
+file. `*.env` files are excluded from Git and Docker build contexts. The upload
+uses at most **50,000 points** for the current 1 GB RAM / 5 GB disk cluster. It
+selects representative human medicine labels, deduplicates generic-name, brand,
+and route combinations, and keeps indications, warnings, interactions, adverse
+reactions, pregnancy, and patient-information sections. This is a bounded subset,
+not the entire 11-million-chunk local corpus.
+
+The selected text uses the existing recursive chunks and source IDs, without a
+second split. Dense BGE and sparse BM25 embeddings are generated locally in small
+batches, then upserted into the configured cloud collection. Regulatory IDs and
+export dates stay in payloads rather than consuming the medical embedding input.
+Dense vectors, HNSW, sparse indexes, and payloads use disk-backed storage. The
+script never deletes or recreates the existing collection. It saves a checkpoint
+only after Qdrant acknowledges a batch, so rerunning the same command resumes
+safely with stable point IDs.
+
+**Uploading is not clinical approval.** Pending points carry `approved=false`
+and are excluded from patient-facing vector searches. Legacy points without that
+field remain eligible, with database approval still authoritative. Patient-facing
+use also requires the matching source records in the serving database; a local
+SQLite import does not automatically populate production PostgreSQL.
+
 For a public PDF, install the heavier offline parser separately:
 
 ```powershell

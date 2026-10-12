@@ -5,3 +5,6 @@ data/raw
 .git
 **/__pycache__
 .pytest_cache
+
+# Local credential files
+*.env

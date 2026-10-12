@@ -17,7 +17,7 @@ from uuid import NAMESPACE_URL, uuid5
 
 from qdrant_client import QdrantClient, models
 
-from app.chunker import chunk_document
+from app.chunker import ChunkMetadata, DocumentChunk, chunk_document
 from app.config import ROOT
 
 log = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ DENSE_DIM = 384
 
 
 class HybridIndex:
-    def __init__(self, settings, client=None):
+    def __init__(self, settings, client=None, *, embedding_threads=1):
         from fastembed import SparseTextEmbedding, TextEmbedding
         self.settings = settings
         host = None
@@ -50,7 +50,7 @@ class HybridIndex:
         event('vector.connection', backend=backend, host=host,
               collection=settings.qdrant_collection)
 
-        self.dense = TextEmbedding(DENSE_MODEL, threads=1)
+        self.dense = TextEmbedding(DENSE_MODEL, threads=embedding_threads)
         self.sparse = SparseTextEmbedding(SPARSE_MODEL, threads=1)
         self.reranker = None
         if getattr(settings, 'rerank_enabled', True):
@@ -61,6 +61,8 @@ class HybridIndex:
                 log.warning('Failed to load cross-encoder reranker %s: %s', RERANKER_MODEL, e)
 
     def ensure_collection(self):
+        if getattr(self, '_collection_ready', False):
+            return
         name = self.settings.qdrant_collection
         if not self.client.collection_exists(name):
             self.client.create_collection(
@@ -69,73 +71,71 @@ class HybridIndex:
                 sparse_vectors_config={'sparse': models.SparseVectorParams(modifier=models.Modifier.IDF)}
             )
         if self.settings.qdrant_url:
+            self.client.create_payload_index(name, 'approved', models.PayloadSchemaType.BOOL)
             for field in ('hospital_id', 'category', 'doc_id', 'source_id', 'chunk_id'):
                 try:
                     self.client.create_payload_index(name, field, models.PayloadSchemaType.KEYWORD)
                 except Exception:
                     pass
+        self._collection_ready = True
 
-    def index(self, sources):
-        """Ingest sources with chunking, metadata generation, and dual vectorization."""
+    def index(self, sources, *, pre_chunked=False):
+        """Stream recursive chunks through bounded embedding/upsert batches.
+
+        Offline imports can pass already-recursively-chunked source records to
+        avoid splitting the same text again. Stable point IDs make retries safe.
+        """
         self.ensure_collection()
-        name = self.settings.qdrant_collection
-        points = []
+        uploaded = 0
+        batch = []
+
+        def flush():
+            nonlocal uploaded
+            texts = [source.get('embedding_text', f"{source.get('title', '')}\n{chunk.text}")
+                     if pre_chunked else f"{source.get('title', '')}\n{chunk.text}"
+                     for source, chunk, _ in batch]
+            dense_vectors = list(self.dense.embed(texts, batch_size=8))
+            sparse_vectors = list(self.sparse.embed(texts))
+            if len(dense_vectors) != len(batch) or len(sparse_vectors) != len(batch):
+                raise ValueError('Embedding count does not match chunk count')
+            points = []
+            for (source, chunk, point_key), dense, sparse in zip(batch, dense_vectors, sparse_vectors):
+                points.append(models.PointStruct(
+                    id=str(uuid5(NAMESPACE_URL, point_key)),
+                    vector={'dense': dense.tolist(), 'sparse': models.SparseVector(
+                        indices=sparse.indices.tolist(), values=sparse.values.tolist())},
+                    payload={'source_id': source['id'], 'doc_id': chunk.metadata.doc_id,
+                             'chunk_id': chunk.chunk_id, 'title': source.get('title', ''),
+                             'url': str(source.get('url', '')), 'category': chunk.metadata.category,
+                             'hospital_id': chunk.metadata.hospital_id, 'text': chunk.text,
+                             'approved': source.get('approved', True),
+                             'metadata': asdict(chunk.metadata)}))
+            self.client.upsert(self.settings.qdrant_collection, points, wait=True)
+            uploaded += len(points)
+            event('vector.upload.batch', count=len(points), total=uploaded)
+            batch.clear()
 
         for source in sources:
             source_id = source['id']
-            title = source.get('title', '')
-            url = str(source.get('url', ''))
-            category = source.get('category', 'health')
-            hospital_id = source.get('hospital_id', self.settings.hospital_id)
-            checked_at = str(source.get('checked_at', ''))
-            full_text = source.get('text', '')
-
-            # Chunk document with adjacent chunk metadata
-            doc_chunks = chunk_document(
-                doc_id=source_id,
-                title=title,
-                text=full_text,
-                category=category,
-                hospital_id=hospital_id,
-                url=url,
-                checked_at=checked_at
-            )
-
-            chunk_texts = [f"{c.metadata.title}\n{c.text}" for c in doc_chunks]
-            dense_vectors = [v.tolist() for v in self.dense.embed(chunk_texts)]
-            sparse_vectors = list(self.sparse.embed(chunk_texts))
-
-            for chunk, dense_vec, sparse_vec in zip(doc_chunks, dense_vectors, sparse_vectors):
-                # When a source has only 1 chunk, map point ID directly to source_id for compatibility
+            attributes = dict(doc_id=source_id, title=source.get('title', ''),
+                              url=str(source.get('url', '')), category=source.get('category', 'health'),
+                              hospital_id=source.get('hospital_id', self.settings.hospital_id),
+                              checked_at=str(source.get('checked_at', '')))
+            if pre_chunked:
+                chunk_id = source_id + '_c0'
+                metadata = ChunkMetadata(**attributes, chunk_id=chunk_id, chunk_index=0,
+                                         total_chunks=1, prev_chunk_id=None, next_chunk_id=None)
+                doc_chunks = [DocumentChunk(chunk_id, source.get('text', ''), metadata)]
+            else:
+                doc_chunks = chunk_document(**attributes, text=source.get('text', ''))
+            for chunk in doc_chunks:
                 point_key = source_id if len(doc_chunks) == 1 else chunk.chunk_id
-                point_id = str(uuid5(NAMESPACE_URL, point_key))
-                point = models.PointStruct(
-                    id=point_id,
-                    vector={
-                        'dense': dense_vec,
-                        'sparse': models.SparseVector(
-                            indices=sparse_vec.indices.tolist(),
-                            values=sparse_vec.values.tolist()
-                        )
-                    },
-                    payload={
-                        'source_id': source_id,
-                        'doc_id': chunk.metadata.doc_id,
-                        'chunk_id': chunk.chunk_id,
-                        'title': title,
-                        'url': url,
-                        'category': category,
-                        'hospital_id': hospital_id,
-                        'text': chunk.text,
-                        'metadata': asdict(chunk.metadata)
-                    }
-                )
-                points.append(point)
-
-        # Batch upsert points
-        if points:
-            for i in range(0, len(points), 50):
-                self.client.upsert(name, points[i:i + 50], wait=True)
+                batch.append((source, chunk, point_key))
+                if len(batch) == 64:
+                    flush()
+        if batch:
+            flush()
+        return uploaded
 
     @traced('vector.search')
     def search_candidates(self, query: str, category: str, limit: int = 8) -> list[models.ScoredPoint]:
@@ -154,7 +154,12 @@ class HybridIndex:
 
         scope = models.Filter(must=[
             models.FieldCondition(key='hospital_id', match=models.MatchValue(value=self.settings.hospital_id)),
-            models.FieldCondition(key='category', match=models.MatchValue(value=category))
+            models.FieldCondition(key='category', match=models.MatchValue(value=category)),
+            # Pending uploads must not displace reviewed sources; retain legacy points.
+            models.Filter(should=[
+                models.FieldCondition(key='approved', match=models.MatchValue(value=True)),
+                models.IsEmptyCondition(is_empty=models.PayloadField(key='approved')),
+            ])
         ])
 
         prefetch_limit = max(limit * 3, 15)
