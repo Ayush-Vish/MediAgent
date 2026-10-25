@@ -396,7 +396,9 @@ def create_app(settings=None):
         if not body.text.strip():
             raise HTTPException(400, 'Enter a message.')
         try:
-            return service.doctor_message(user_id, body.conversation_id, body.text, actor, str(body.request_id))
+            message = service.doctor_message(user_id, body.conversation_id, body.text, actor, str(body.request_id))
+            channels.deliver_staff_message(message)
+            return message
         except LookupError as error:
             raise HTTPException(404, str(error)) from None
 
@@ -431,7 +433,8 @@ def create_app(settings=None):
             store.put(review_id, 'review', review)
             conversation = store.get(review['session'])
             if conversation and conversation.get('user_id'):
-                service.save_message(review['session'], conversation['user_id'], 'staff', body.reply.strip(), actor)
+                message = service.save_message(review['session'], conversation['user_id'], 'staff', body.reply.strip(), actor)
+                channels.deliver_staff_message(message)
         return {'ok': True}
 
     @app.get('/api/staff/sources')

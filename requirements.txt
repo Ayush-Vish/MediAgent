@@ -1,6 +1,7 @@
 fastapi>=0.115.11,<1
 uvicorn>=0.34,<1
 httpx>=0.28,<1
+cryptography>=43,<47
 pydantic-settings>=2.8,<3
 sqlalchemy>=2.0.38,<3
 psycopg[binary]>=3.2,<4

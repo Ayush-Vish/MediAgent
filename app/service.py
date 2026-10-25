@@ -92,10 +92,10 @@ class ChatService:
                 previous = [m for m in self.store.list('patient_message')
                             if m['conversation_id'] == key and m['user_id'] == user['id']]
                 previous.sort(key=lambda m: (m['timestamp'], m['id']))
-                context = [{'role': m['role'], 'text': m['text']} for m in previous[-6:]]
+                context = [{'role': m['role'], 'text': m['text']} for m in previous[-3:]]
             else:
                 context = list(self.recent_messages.get(key, []))
-            event('chat.context', message_count=len(context), limit=6)
+            event('chat.context', message_count=len(context), limit=3)
             result = self.graph.run(message, session.get('topic'), context=context)
             answer = result['answer']
             topic = result.get('topic')
@@ -188,7 +188,7 @@ class ChatService:
                     self.save_message(key, user['id'], role, text, answer=answer if role == 'assistant' else None)
             else:
                 self.recent_messages[key] = (context + [
-                    {'role': 'user', 'text': message}, {'role': 'assistant', 'text': answer['text']}])[-6:]
+                    {'role': 'user', 'text': message}, {'role': 'assistant', 'text': answer['text']}])[-3:]
                 self.recent_messages.move_to_end(key)
                 while len(self.recent_messages) > 1000:
                     self.recent_messages.popitem(last=False)

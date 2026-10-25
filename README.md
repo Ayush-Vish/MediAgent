@@ -196,7 +196,7 @@ Interactive schemas are available at `/docs`.
 | `POST /api/staff/reviews/{id}/reply` | Save a general-information reply |
 | `GET/POST /api/staff/sources` | List or stage public sources |
 | `PATCH /api/staff/sources/{id}` | Approve or withdraw a source |
-| `POST /webhooks/telegram` | Secret-verified Telegram updates |
+| `POST /webhooks/telegram` | Secret-verified, consent-gated Telegram updates |
 | `GET/POST /webhooks/whatsapp` | Meta verification and signed updates; disabled by default |
 | `GET /healthz` | App/database health |
 
@@ -233,7 +233,9 @@ Deploy the FastAPI API at that HTTPS address, restart it, and register the exist
 .\.venv\Scripts\python.exe -m scripts.telegram_webhook
 ```
 
-Telegram sends private text updates to `/webhooks/telegram`; the API validates Telegram's secret header, deduplicates updates, calls the RAG/LLM pipeline, and sends the result through `sendMessage`. The adapter supports `/review`, `/status`, and `/forget`. Telegram bot sessions are currently separate from registered web-patient accounts; linking them to this patient dashboard needs a one-time account-link code, not a name or phone-number match. Webhook registration is an explicit owner operation and has not been performed automatically.
+Telegram sends private text updates to `/webhooks/telegram`; the API validates Telegram's secret header and deduplicates updates. `/start` or `/privacy` shows the retention notice, and `/accept` creates a pseudonymous Telegram patient visible in the authenticated staff dashboard. Subsequent messages run through the same RAG/LLM pipeline and are retained with AI replies so hospital staff can review them. A doctor reply from **Patients & conversations** is delivered back into the same Telegram private chat through an idempotent delivery record. The adapter also supports `/review`, `/status`, and `/forget`; `/forget` removes the retained conversation, alias, channel binding, and symptom records. Webhook registration is an explicit owner operation and has not been performed automatically.
+
+`CHANNEL_HASH_SECRET` also derives the AES-GCM key used to protect Telegram delivery addresses. Back it up securely: rotating or losing it disconnects existing Telegram conversations. The database still contains medical chat content after consent, so use encrypted database storage, restricted backups, least-privilege staff accounts, and an appropriate retention policy. This demo does not by itself establish HIPAA, DPDP, or other regulatory compliance.
 
 Run **one API worker / one replica**. Locks and quota counters are designed for that deployment. Webhook delivery is at-least-once at the provider boundary: a crash after a provider accepts a message but before the sent marker is saved can produce a duplicate. Do not claim exactly-once delivery. Normal duplicate updates and retry-after-failure are covered by tests.
 
