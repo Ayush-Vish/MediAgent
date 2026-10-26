@@ -96,3 +96,24 @@ def test_search_query_sanitizer_rejects_operators_and_limits_words():
     assert sanitize_search_query('site:example.com secret') is None
     assert sanitize_search_query('https://example.com') is None
     assert len(sanitize_search_query(' '.join(f'word{i}' for i in range(30))).split()) == 16
+
+
+def test_web_results_are_balanced_across_trusted_domains():
+    settings = Settings(_env_file=None, web_search_enabled=True, web_search_max_results=3)
+
+    def search(query, limit):
+        domain = query.rsplit('site:', 1)[1]
+        return [
+            {'title': f'{domain} result {index}', 'href': f'https://www.{domain}/article-{index}'}
+            for index in range(3)
+        ]
+
+    def fetch(url, domains):
+        return url.rsplit('/', 1)[1], 'General patient medical guidance. ' * 4, url
+
+    sources = WebSearchAgent(settings, search_fn=search, fetch_fn=fetch).search('ear health', 'health')
+
+    assert len(sources) == 3
+    assert {source['url'].split('/')[2].removeprefix('www.') for source in sources} == {
+        'nhs.uk', 'mayoclinic.org', 'medlineplus.gov'
+    }

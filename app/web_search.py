@@ -74,14 +74,23 @@ class WebSearchAgent:
 
         # Query one allowlisted domain at a time. DuckDuckGo does not reliably
         # support parenthesized OR combinations of multiple site: operators.
-        results = []
+        result_groups = []
         for domain in sorted(domains):
             try:
-                results.extend(self._search_fn(
+                domain_results = list(self._search_fn(
                     f'{query} site:{domain}', self.settings.web_search_max_results
                 ) or [])
+                if domain_results:
+                    result_groups.append(domain_results)
             except Exception as error:
                 log.info('Web search domain skipped: domain=%s error=%s', domain, type(error).__name__)
+        # Round-robin results so one prolific site cannot crowd every other
+        # trusted publisher out of the final evidence set.
+        results = []
+        for rank in range(max((len(group) for group in result_groups), default=0)):
+            for group in result_groups:
+                if rank < len(group):
+                    results.append(group[rank])
         if not results:
             web_search_results(query, [])
             return []

@@ -54,6 +54,14 @@ def test_non_health_prompt_gets_scope_redirect_without_model(client, app, monkey
     assert 'consulting a qualified healthcare professional' not in response.json()['text']
 
 
+def test_eardrum_question_is_treated_as_health_scope(client, app, monkeypatch):
+    monkeypatch.setattr(app.state.service.graph, 'generate_general_answer',
+                        lambda query, context=None: 'General educational ear guidance.')
+    answer = ask(client, 'I am getting a hole in my eardrum.').json()
+    assert answer['route'] == 'health'
+    assert 'What health or hospital topic' not in answer['text']
+
+
 def test_appointment_citations(client):
     answer = ask(client, 'How can I book an appointment?').json()
     assert answer['route'] == 'hospital'
