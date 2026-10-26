@@ -38,6 +38,8 @@ def create_app(settings=None):
     settings = settings or Settings()
     configure_logging(settings.log_file, show_chunks=settings.log_show_chunks,
                       show_query=settings.log_show_query)
+    event('app.features', hybrid_enabled=settings.hybrid_enabled,
+          rerank_enabled=settings.rerank_enabled, web_search_enabled=settings.web_search_enabled)
     store = Store(settings.database_url, settings.retention_hours)
     knowledge = Knowledge(store, settings)
     knowledge.seed()

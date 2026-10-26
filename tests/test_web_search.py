@@ -56,6 +56,20 @@ def test_graph_combines_web_with_local_evidence(client, app, settings):
     assert any(source['url'] == 'https://www.nhs.uk/conditions/earache/' for source in answer['sources'])
 
 
+def test_unknown_medical_term_can_use_trusted_web_evidence(client, app, settings, monkeypatch):
+    fake = FakeWebSearch()
+    graph = app.state.service.graph
+    graph.web_search_agent = fake
+    settings.web_search_enabled = True
+    monkeypatch.setattr(graph.knowledge, 'search', lambda query, category: ([], 'lexical'))
+
+    answer = _ask(client, 'What is otosclerosis?').json()
+
+    assert fake.calls == [('What is otosclerosis', 'health')]
+    assert answer['evidence'] == 'limited'
+    assert answer['sources']
+
+
 def test_search_rejects_untrusted_domains_and_injected_pages():
     settings = Settings(_env_file=None, web_search_enabled=True, web_search_max_results=3)
     results = [

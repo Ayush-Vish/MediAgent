@@ -164,27 +164,32 @@ class ChatGraph:
     @traced('web_search')
     def web_search(self, state):
         """Add allowlisted web evidence alongside approved local evidence."""
-        if (not self.settings.web_search_enabled or
-                state.get('guard_decision') or state.get('is_greeting') or state.get('is_human_request')):
+        if not self.settings.web_search_enabled:
+            event('web_search.skipped', reason='disabled')
+            return {}
+        if state.get('guard_decision'):
+            event('web_search.skipped', reason='guarded')
+            return {}
+        if state.get('is_greeting'):
+            event('web_search.skipped', reason='greeting')
+            return {}
+        if state.get('is_human_request'):
+            event('web_search.skipped', reason='human_handoff')
             return {}
 
         category = state.get('category', 'health')
         query = state['query']
         context = state.get('context', [])
-        has_health_context = any(
-            bool(HEALTH.search(normalize(message.get('text', ''))))
-            for message in context if message.get('role') == 'user'
-        )
-        if category == 'health' and not state.get('topic') and not HEALTH.search(normalize(query)) and not has_health_context:
-            return {}
 
         emit_status('web', 'Searching trusted medical websites…')
         rewritten = self.rewrite_search_query(query, category, context)
         search_query = sanitize_search_query(rewritten) or sanitize_search_query(query)
         if not search_query:
+            event('web_search.skipped', reason='invalid_query')
             return {}
         web_sources = self.web_search_agent.search(search_query, category)
         if not web_sources:
+            event('web_search.empty', category=category)
             return {}
         sources, seen = [], set()
         for source in [*state.get('sources', []), *web_sources]:
@@ -290,7 +295,8 @@ class ChatGraph:
             if m.get('role') == 'user'
         )
 
-        if category == 'health' and not state.get('topic') and not HEALTH.search(normalize(query)) and not has_health_context:
+        if (category == 'health' and not sources and not state.get('topic') and
+                not HEALTH.search(normalize(query)) and not has_health_context):
             return {'answer': Answer(
                 route='health',
                 text='I can help with general health education and hospital questions. What health or hospital topic would you like to ask about?',
