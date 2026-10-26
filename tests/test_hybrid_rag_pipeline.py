@@ -7,8 +7,9 @@
 """
 import numpy as np
 from qdrant_client import QdrantClient
+from types import SimpleNamespace
 
-from app.chunker import chunk_document, extract_sections
+from app.chunker import chunk_document
 from app.vector import HybridIndex
 
 
@@ -38,6 +39,29 @@ def test_dense_relevance_gate_rejects_nearest_but_unrelated_candidates(settings)
 
     assert [item['source_id'] for item in relevant] == ['ear']
     assert relevant[0]['dense_relevance_score'] >= 0.60
+
+
+def test_dense_relevance_gate_reuses_vectors_returned_by_qdrant(settings):
+    index = HybridIndex.__new__(HybridIndex)
+    index.settings = settings.model_copy(update={'hybrid_min_dense_score': 0.60})
+
+    class QueryOnly:
+        def query_embed(self, query):
+            yield np.array([1.0, 0.0])
+
+        def embed(self, passages, **kwargs):
+            raise AssertionError('Stored Qdrant vectors should avoid passage re-embedding')
+
+    index.dense = QueryOnly()
+    candidates = [
+        {'expanded_text': 'Relevant', 'source_id': 'relevant',
+         'point': SimpleNamespace(vector={'dense': [0.9, 0.1]})},
+        {'expanded_text': 'Unrelated', 'source_id': 'unrelated',
+         'point': SimpleNamespace(vector={'dense': [0.2, 0.8]})},
+    ]
+
+    relevant = index.filter_relevant_passages('query', candidates)
+    assert [item['source_id'] for item in relevant] == ['relevant']
 
 
 def test_chunk_document_adjacency_and_metadata():

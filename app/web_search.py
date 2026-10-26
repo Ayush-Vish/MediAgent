@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from urllib.parse import urljoin, urlsplit
 
@@ -74,16 +75,24 @@ class WebSearchAgent:
 
         # Query one allowlisted domain at a time. DuckDuckGo does not reliably
         # support parenthesized OR combinations of multiple site: operators.
-        result_groups = []
-        for domain in sorted(domains):
+        ordered_domains = sorted(domains)
+
+        def search_domain(domain):
             try:
-                domain_results = list(self._search_fn(
+                return list(self._search_fn(
                     f'{query} site:{domain}', self.settings.web_search_max_results
-                ) or [])
-                if domain_results:
-                    result_groups.append(domain_results)
+                ) or []), None
             except Exception as error:
-                log.info('Web search domain skipped: domain=%s error=%s', domain, type(error).__name__)
+                return [], type(error).__name__
+
+        with ThreadPoolExecutor(max_workers=min(3, len(ordered_domains))) as executor:
+            domain_batches = list(executor.map(search_domain, ordered_domains))
+        result_groups = []
+        for domain, (domain_results, error_name) in zip(ordered_domains, domain_batches):
+            if error_name:
+                log.info('Web search domain skipped: domain=%s error=%s', domain, error_name)
+            elif domain_results:
+                result_groups.append(domain_results)
         # Round-robin results so one prolific site cannot crowd every other
         # trusted publisher out of the final evidence set.
         results = []

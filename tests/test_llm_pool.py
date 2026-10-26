@@ -46,7 +46,7 @@ def test_settings_build_all_providers(settings):
     settings.groq_api_keys, settings.groq_model = 'g', 'groq-model'
     settings.ai_api_keys, settings.ai_model = 'd', 'compatible-model'
     provider, _ = configured_provider(settings)
-    assert [p.name for p in provider.providers] == ['openrouter', 'gemini', 'groq', 'openai_compatible']
+    assert [p.name for p in provider.providers] == ['groq', 'openrouter', 'gemini', 'openai_compatible']
     other, _ = configured_provider(settings)
     assert other.providers[0].pool is provider.providers[0].pool
 

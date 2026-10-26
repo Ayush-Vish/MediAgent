@@ -50,6 +50,20 @@ def test_shared_quota_prevents_rotation(monkeypatch):
     assert len(calls) == 1
 
 
+def test_unavailable_reason_distinguishes_cooldown_and_disabled_keys():
+    pool = KeyPool(['a'], clock=lambda: 0)
+    pool.states[0].cooldown_until = 10
+    with pytest.raises(PoolUnavailable) as cooldown:
+        pool.post('https://example.test')
+    assert cooldown.value.reason == 'cooldown'
+
+    pool.states[0].cooldown_until = 0
+    pool.states[0].disabled = True
+    with pytest.raises(PoolUnavailable) as disabled:
+        pool.post('https://example.test')
+    assert disabled.value.reason == 'disabled'
+
+
 def test_retry_after_date_invalid_and_backoff():
     assert retry_delay('Thu, 01 Jan 1970 00:02:00 GMT', 1, 60) == 60
     assert retry_delay('0', 2, 0) == 0

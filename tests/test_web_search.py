@@ -1,4 +1,5 @@
 from uuid import uuid4
+from threading import Barrier
 
 from app.config import Settings
 from app.web_search import WebSearchAgent, sanitize_search_query
@@ -35,7 +36,7 @@ def test_graph_uses_rewritten_query_only_after_local_miss(client, app, settings,
     monkeypatch.setattr(graph, 'rewrite_search_query',
                         lambda query, category, context=None: 'ear pain causes warning signs')
 
-    answer = _ask(client, 'What causes unusual eardrum pain?').json()
+    answer = _ask(client, 'What causes otosclerosis?').json()
 
     assert fake.calls == [('ear pain causes warning signs', 'health')]
     assert answer['evidence'] == 'limited'
@@ -54,6 +55,28 @@ def test_graph_combines_web_with_local_evidence(client, app, settings):
     assert answer['evidence'] == 'limited'
     assert fake.calls == [('What is general cough education', 'health')]
     assert any(source['url'] == 'https://www.nhs.uk/conditions/earache/' for source in answer['sources'])
+
+
+def test_graph_runs_local_and_web_retrieval_in_parallel(app, settings, monkeypatch):
+    barrier = Barrier(2)
+    graph = app.state.service.graph
+    settings.web_search_enabled = True
+
+    def local_search(query, category):
+        barrier.wait(timeout=2)
+        return [], 'lexical'
+
+    class ParallelWebSearch(FakeWebSearch):
+        def search(self, query, category):
+            barrier.wait(timeout=2)
+            return super().search(query, category)
+
+    monkeypatch.setattr(graph.knowledge, 'search', local_search)
+    graph.web_search_agent = ParallelWebSearch()
+
+    result = graph.run('What is general cough education?')
+    assert result['sources']
+    assert result['mode'] == 'lexical + web (direct-query)'
 
 
 def test_unknown_medical_term_can_use_trusted_web_evidence(client, app, settings, monkeypatch):

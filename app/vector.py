@@ -181,7 +181,8 @@ class HybridIndex:
             ],
             query=models.FusionQuery(fusion=models.Fusion.RRF),
             limit=limit,
-            with_payload=True
+            with_payload=True,
+            with_vectors=['dense'],
         )
         return response.points
 
@@ -276,18 +277,32 @@ class HybridIndex:
             return []
 
         query_vector = next(self.dense.query_embed(query))
-        passages = [chunk['expanded_text'] for chunk in candidate_chunks]
-        passage_vectors = list(self.dense.embed(passages, batch_size=8))
-        if len(passage_vectors) != len(candidate_chunks):
-            raise ValueError('Embedding count does not match candidate count')
+        passage_vectors = []
+        missing = []
+        for index, chunk in enumerate(candidate_chunks):
+            point = chunk.get('point')
+            vectors = getattr(point, 'vector', None) if point is not None else None
+            dense_vector = vectors.get('dense') if isinstance(vectors, dict) else None
+            passage_vectors.append(dense_vector)
+            if dense_vector is None:
+                missing.append(index)
+        if missing:
+            embedded = list(self.dense.embed(
+                [candidate_chunks[index]['expanded_text'] for index in missing], batch_size=8
+            ))
+            if len(embedded) != len(missing):
+                raise ValueError('Embedding count does not match missing candidate count')
+            for index, vector in zip(missing, embedded):
+                passage_vectors[index] = vector
 
         query_norm = math.sqrt(float(query_vector @ query_vector))
         threshold = self.settings.hybrid_min_dense_score
         relevant = []
         for chunk, vector in zip(candidate_chunks, passage_vectors):
-            vector_norm = math.sqrt(float(vector @ vector))
+            vector_norm = math.sqrt(sum(float(value) ** 2 for value in vector))
             score = 0.0 if query_norm == 0.0 or vector_norm == 0.0 else float(
-                (query_vector @ vector) / (query_norm * vector_norm)
+                sum(float(left) * float(right) for left, right in zip(query_vector, vector))
+                / (query_norm * vector_norm)
             )
             chunk['dense_relevance_score'] = score
             if score >= threshold:

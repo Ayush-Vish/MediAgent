@@ -61,12 +61,12 @@ class LLMPool:
                             settings.ai_pool_max_attempts, settings.ai_pool_shared_limits)
         providers = []
         entries = [
+            ('groq', settings.groq_api_keys or settings.groq_api_key,
+             settings.groq_model, 'https://api.groq.com/openai/v1'),
             ('openrouter', settings.openrouter_api_keys or settings.openrouter_api_key,
              settings.openrouter_model, 'https://openrouter.ai/api/v1'),
             ('gemini', settings.gemini_api_keys or settings.gemini_api_key,
              settings.gemini_model, None),
-            ('groq', settings.groq_api_keys or settings.groq_api_key,
-             settings.groq_model, 'https://api.groq.com/openai/v1'),
             ('openai_compatible', settings.ai_api_keys or settings.ai_api_key,
              settings.ai_model, settings.ai_base_url),
         ]

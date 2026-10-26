@@ -30,6 +30,10 @@ class ChatState(TypedDict, total=False):
     answer: dict
     sources: list
     mode: str
+    local_sources: list
+    web_sources: list
+    local_mode: str
+    web_mode: str
     severity: dict | None
     alert: dict | None
     guard_decision: object | None
@@ -70,14 +74,16 @@ class ChatGraph:
         builder.add_node('route', self.route)
         builder.add_node('retrieve', self.retrieve)
         builder.add_node('web_search', self.web_search)
+        builder.add_node('merge_evidence', self.merge_evidence)
         builder.add_node('respond', self.respond)
         
-        # Local approved evidence is always attempted before the optional web fallback.
-        # No immediate answer short-circuiting out of route
+        # Local and trusted-web retrieval are independent, so run them in
+        # parallel and join both branches before answer generation.
         builder.add_edge(START, 'route')
         builder.add_edge('route', 'retrieve')
-        builder.add_edge('retrieve', 'web_search')
-        builder.add_edge('web_search', 'respond')
+        builder.add_edge('route', 'web_search')
+        builder.add_edge(['retrieve', 'web_search'], 'merge_evidence')
+        builder.add_edge('merge_evidence', 'respond')
         builder.add_edge('respond', END)
         self.graph = builder.compile()
 
@@ -136,7 +142,7 @@ class ChatGraph:
     def retrieve(self, state):
         # If guard blocked, greeting, or staff handoff, skip knowledge search
         if state.get('guard_decision') or state.get('is_greeting') or state.get('is_human_request'):
-            return {'sources': [], 'mode': 'local'}
+            return {'local_sources': [], 'local_mode': 'local'}
 
         if not self.settings.hybrid_enabled:
             emit_status('knowledge', 'Searching approved medical sources…')
@@ -159,7 +165,7 @@ class ChatGraph:
             if source['url'] not in seen:
                 seen.add(source['url'])
                 unique.append(source)
-        return {'sources': unique[:2], 'mode': mode}
+        return {'local_sources': unique[:2], 'local_mode': mode}
 
     @traced('web_search')
     def web_search(self, state):
@@ -182,7 +188,9 @@ class ChatGraph:
         context = state.get('context', [])
 
         emit_status('web', 'Searching trusted medical websites…')
-        rewritten = self.rewrite_search_query(query, category, context)
+        # A recognized topic is already a stable public search query. Reserve
+        # the LLM rewrite for unknown/ambiguous medical terminology.
+        rewritten = None if state.get('topic') else self.rewrite_search_query(query, category, context)
         search_query = sanitize_search_query(rewritten) or sanitize_search_query(query)
         if not search_query:
             event('web_search.skipped', reason='invalid_query')
@@ -190,16 +198,20 @@ class ChatGraph:
         web_sources = self.web_search_agent.search(search_query, category)
         if not web_sources:
             event('web_search.empty', category=category)
-            return {}
+            return {'web_sources': [], 'web_mode': ''}
+        query_mode = 'llm-query' if rewritten and sanitize_search_query(rewritten) else 'direct-query'
+        event('web_search.merge', category=category, count=len(web_sources), query_mode=query_mode)
+        return {'web_sources': web_sources, 'web_mode': f'web ({query_mode})'}
+
+    @traced('evidence.merge')
+    def merge_evidence(self, state):
         sources, seen = [], set()
-        for source in [*state.get('sources', []), *web_sources]:
+        for source in [*state.get('local_sources', []), *state.get('web_sources', [])]:
             if source['url'] not in seen:
                 seen.add(source['url'])
                 sources.append(source)
-        query_mode = 'llm-query' if rewritten and sanitize_search_query(rewritten) else 'safe-query-fallback'
-        event('web_search.merge', category=category, count=len(web_sources), query_mode=query_mode)
-        local_mode = state.get('mode', 'lexical')
-        return {'sources': sources, 'mode': f'{local_mode} + web ({query_mode})'}
+        modes = [mode for mode in (state.get('local_mode'), state.get('web_mode')) if mode]
+        return {'sources': sources, 'mode': ' + '.join(modes) or 'local'}
 
     @traced('llm.search_query')
     def rewrite_search_query(self, query, category, context=None):

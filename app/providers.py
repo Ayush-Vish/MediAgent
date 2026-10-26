@@ -13,6 +13,7 @@ from typing import Protocol
 
 from app.knowledge import TOPICS, citation
 from app.key_pool import PoolPolicy, get_pool, parse_keys
+from app.observability import event
 from app.streaming import generation_post
 
 log = logging.getLogger(__name__)
@@ -116,7 +117,11 @@ class GeminiProvider:
             log.warning('Gemini API HTTP %s: %s', response.status_code, response.text[:200])
             return None
         raw = response.json()['candidates'][0]['content']['parts'][0]['text']
-        return clean_llm_output(raw)
+        cleaned = clean_llm_output(raw)
+        if not cleaned:
+            event('llm.output.rejected', provider=self.name, operation='generate',
+                  reason='missing_or_filtered_content')
+        return cleaned
 
     def generate_general(self, query, context=None):
         prompt = _general_prompt(query, context)
@@ -134,7 +139,11 @@ class GeminiProvider:
             log.warning('Gemini API HTTP %s: %s', response.status_code, response.text[:200])
             return None
         raw = response.json()['candidates'][0]['content']['parts'][0]['text']
-        return clean_llm_output(raw)
+        cleaned = clean_llm_output(raw)
+        if not cleaned:
+            event('llm.output.rejected', provider=self.name, operation='generate_general',
+                  reason='missing_or_filtered_content')
+        return cleaned
 
     def rewrite_search_query(self, query, category, context=None):
         response = self._post(
@@ -147,7 +156,11 @@ class GeminiProvider:
         if not response.is_success:
             return None
         raw = response.json()['candidates'][0]['content']['parts'][0]['text']
-        return clean_llm_output(raw)
+        cleaned = clean_llm_output(raw)
+        if not cleaned:
+            event('llm.output.rejected', provider=self.name, operation='rewrite_search_query',
+                  reason='missing_or_filtered_content')
+        return cleaned
 
 
 class OpenAICompatibleProvider:
@@ -212,7 +225,11 @@ class OpenAICompatibleProvider:
             log.warning('AI provider (%s) HTTP %s: %s', self.name, response.status_code, response.text[:200])
             return None
         content = response.json()['choices'][0]['message']['content']
-        return clean_llm_output(content)
+        cleaned = clean_llm_output(content)
+        if not cleaned:
+            event('llm.output.rejected', provider=self.name, operation='generate',
+                  reason='missing_or_filtered_content')
+        return cleaned
 
     def generate_general(self, query, context=None):
         response = generation_post(self,
@@ -236,7 +253,11 @@ class OpenAICompatibleProvider:
             log.warning('AI provider (%s) HTTP %s: %s', self.name, response.status_code, response.text[:200])
             return None
         content = response.json()['choices'][0]['message']['content']
-        return clean_llm_output(content)
+        cleaned = clean_llm_output(content)
+        if not cleaned:
+            event('llm.output.rejected', provider=self.name, operation='generate_general',
+                  reason='missing_or_filtered_content')
+        return cleaned
 
     def rewrite_search_query(self, query, category, context=None):
         response = self._post(
@@ -248,7 +269,11 @@ class OpenAICompatibleProvider:
         )
         if not response.is_success:
             return None
-        return clean_llm_output(response.json()['choices'][0]['message']['content'])
+        cleaned = clean_llm_output(response.json()['choices'][0]['message']['content'])
+        if not cleaned:
+            event('llm.output.rejected', provider=self.name, operation='rewrite_search_query',
+                  reason='missing_or_filtered_content')
+        return cleaned
 
 
 _SUMMARY_INSTRUCTION = '''Write a concise draft timeline summary for a clinician from the supplied JSON records.

@@ -188,9 +188,11 @@ def traced(name):
                     answer = result.get('answer')
                     if not isinstance(answer, dict):
                         answer = result
+                    result_sources = (answer.get('sources') or answer.get('local_sources')
+                                      or answer.get('web_sources') or [])
                     event(name + '.result', route=answer.get('route'), mode=answer.get('mode'),
                           category=answer.get('category'), guarded=bool(answer.get('guard_decision')),
-                          evidence=answer.get('evidence'), source_count=len(answer.get('sources', [])))
+                          evidence=answer.get('evidence'), source_count=len(result_sources))
                 elif name == 'retrieval' and isinstance(result, tuple):
                     event(name + '.result', source_count=len(result[0]), mode=result[1])
                 elif result is None:

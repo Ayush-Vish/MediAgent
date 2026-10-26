@@ -15,7 +15,8 @@ from app.observability import event, span
 
 
 class PoolUnavailable(RuntimeError):
-    def __init__(self):
+    def __init__(self, reason='unavailable'):
+        self.reason = reason
         super().__init__('No provider credentials currently available')
 
 
@@ -79,13 +80,30 @@ class KeyPool:
                 now < self.cooldown_until or len(self.requests) >= self.policy.rpm
                 or sum(s.in_flight for s in self.states) >= self.policy.concurrency
             ):
-                raise PoolUnavailable()
+                reason = ('cooldown' if now < self.cooldown_until else
+                          'rpm_limit' if len(self.requests) >= self.policy.rpm else 'concurrency_limit')
+                raise PoolUnavailable(reason)
             available = [s for i, s in enumerate(self.states) if i not in tried
                          and not s.disabled and s.cooldown_until <= now
                          and len(s.requests) < self.policy.rpm
                          and s.in_flight < self.policy.concurrency]
             if not available:
-                raise PoolUnavailable()
+                candidates = [s for i, s in enumerate(self.states) if i not in tried]
+                if not self.states:
+                    reason = 'no_keys'
+                elif not candidates:
+                    reason = 'attempted_all_keys'
+                elif all(s.disabled for s in candidates):
+                    reason = 'disabled'
+                elif all(s.cooldown_until > now for s in candidates):
+                    reason = 'cooldown'
+                elif all(len(s.requests) >= self.policy.rpm for s in candidates):
+                    reason = 'rpm_limit'
+                elif all(s.in_flight >= self.policy.concurrency for s in candidates):
+                    reason = 'concurrency_limit'
+                else:
+                    reason = 'mixed_limits'
+                raise PoolUnavailable(reason)
             state = min(available, key=lambda s: (len(s.requests), s.in_flight))
             tried.add(self.states.index(state))
             state.requests.append(now)
@@ -98,8 +116,9 @@ class KeyPool:
         for _ in range(min(len(self.states), self.policy.max_attempts)):
             try:
                 state = self._reserve(tried)
-            except PoolUnavailable:
-                event('llm.keys.unavailable', attempted=len(tried), key_count=len(self.states))
+            except PoolUnavailable as error:
+                event('llm.keys.unavailable', attempted=len(tried), key_count=len(self.states),
+                      reason=error.reason)
                 raise
             event('llm.key.reserved', key_slot=self.states.index(state), attempt=len(tried))
             try:
@@ -134,7 +153,7 @@ class KeyPool:
             finally:
                 with self.lock:
                     state.in_flight -= 1
-        raise PoolUnavailable()
+        raise PoolUnavailable('attempt_budget')
 
 
 _pools = {}
