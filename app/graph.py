@@ -339,7 +339,9 @@ class ChatGraph:
             if text is not None:
                 generated = True
                 evidence = 'limited' if web_sources else 'supported'
-            elif category == 'hospital' or web_sources or self.provider.name == 'local':
+            elif sources:
+                # Keep a rejected model draft relevant by falling back to the
+                # retrieved excerpts instead of unrelated generic wording.
                 text = _format_local_response(query, citations, self.settings.hospital_name, web_sources)
                 evidence = 'limited' if web_sources else 'supported'
 

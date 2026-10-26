@@ -44,6 +44,11 @@ def test_internal_model_text_is_rejected(content):
     assert not reply_allowed(content)
 
 
+def test_allows_neutral_dosage_facts_but_rejects_personal_directions():
+    assert reply_allowed('Paracetamol tablets commonly contain 500 mg of medicine.')
+    assert not reply_allowed('You should take 500 mg now.')
+
+
 def test_non_health_prompt_gets_scope_redirect_without_model(client, app, monkeypatch):
     def unexpected(*args, **kwargs):
         raise AssertionError('Out-of-scope prompt must not reach the model')

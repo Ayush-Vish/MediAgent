@@ -148,4 +148,7 @@ def safe_to_store(message):
 def reply_allowed(text):
     normalized = normalize(text)
     return not INTERNAL_OUTPUT.search(text) and not IDENTIFIER.search(normalized) and not re.search(
-        r'\b(you (have|should take|must take|should stop)|guaranteed cure|no need to see|take \d+|\d+\s*mg)\b', normalized)
+        r'\b(you (have|should take|must take|should stop)|guaranteed cure|no need to see|'
+        r'(?:take|use|start|increase|decrease) \d+(?:\.\d+)?\s*(?:mg|mcg|g|ml)?)\b',
+        normalized,
+    )

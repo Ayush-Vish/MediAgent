@@ -66,6 +66,38 @@ def test_stream_delivers_drafts_and_persists_only_final_answer(client, app, monk
     assert len(calls) == 1
 
 
+def test_neutral_dosage_fact_is_not_replaced_by_generic_fallback(client, app, monkeypatch):
+    configure_provider(app)
+
+    @contextmanager
+    def stream(method, url, **kwargs):
+        packets = [
+            {'choices': [{'delta': {'content': 'Paracetamol tablets commonly contain '},
+                          'finish_reason': None}]},
+            {'choices': [{'delta': {'content': '500 mg of medicine [S1].'},
+                          'finish_reason': 'stop'}]},
+        ]
+        data = ''.join('data: ' + json.dumps(packet) + '\n\n' for packet in packets)
+        yield httpx.Response(200, request=httpx.Request(method, url), content=data,
+                             headers={'content-type': 'text/event-stream'})
+
+    monkeypatch.setattr(httpx, 'stream', stream)
+    monkeypatch.setattr(httpx, 'post', lambda url, **kwargs: httpx.Response(
+        200, request=httpx.Request('POST', url),
+        json={'choices': [{'message': {'content': '{"ids":[0]}'}}]},
+    ))
+    response = client.post('/api/chat/stream', json={
+        'message': 'What is paracetamol?', 'request_id': str(uuid4())})
+    events = frames(response)
+    drafts = [data['text'] for name, data in events if name == 'draft' and data['text']]
+    final = events[-1][1]
+
+    assert events[-1][0] == 'done'
+    assert '500 mg' in drafts[-1]
+    assert '500 mg' in final['text']
+    assert 'For this specific symptom or condition' not in final['text']
+
+
 def test_interrupted_provider_stream_reports_error_without_saving(client, app, monkeypatch):
     configure_provider(app)
     mock_transport(monkeypatch, complete=False)

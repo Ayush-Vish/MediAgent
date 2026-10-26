@@ -79,7 +79,7 @@ async function streamWords(
     }
 
     const targetText = getTarget();
-    if (displayed.length < targetText.length) {
+    if (displayed !== targetText) {
       if (!targetText.startsWith(displayed)) {
         let common = 0;
         while (
@@ -90,9 +90,14 @@ async function streamWords(
           common++;
         }
         displayed = displayed.slice(0, common);
+        onChunk(displayed);
       }
 
       const remaining = targetText.slice(displayed.length);
+      if (!remaining) {
+        await sleep(10);
+        continue;
+      }
       const tokens = remaining.match(/(?:\n+|\s*\S+)/g) || [remaining];
       const token = tokens[0];
       displayed += token;
