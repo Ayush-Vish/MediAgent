@@ -53,6 +53,12 @@ class LLMPool:
     def rewrite_search_query(self, query, category, context=None):
         return self._call('rewrite_search_query', query, category, context)
 
+    def guard_input(self, query, context=None, previous_topic=None):
+        return self._call('guard_input', query, context, previous_topic)
+
+    def guard_output(self, query, answer, category, sources=None, severity='general'):
+        return self._call('guard_output', query, answer, category, sources, severity)
+
     @classmethod
     def from_settings(cls, settings):
         from app.providers import GeminiProvider, OpenAICompatibleProvider, ProviderConfig

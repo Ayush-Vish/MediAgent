@@ -5,9 +5,8 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from app.guardrails import InputDecision, OutputDecision
 from app.main import create_app
-from app.providers import clean_llm_output
-from app.safety import reply_allowed
 
 
 def ask(client, message, request_id=None):
@@ -34,19 +33,19 @@ def test_guard_routes(client, monkeypatch, message, route):
     assert result.json()['route'] == route
 
 
-@pytest.mark.parametrize('content', [
-    'Here\'s a thinking process:\nThe prompt instructions say: "Be informative and helpful."',
-    'User Safety: unsafe Safety Categories: Unauthorized Advice',
-    'IMPORTANT: Output ONLY the direct, patient-facing response.',
-])
-def test_internal_model_text_is_rejected(content):
-    assert clean_llm_output(content) is None
-    assert not reply_allowed(content)
-
-
-def test_allows_neutral_dosage_facts_but_rejects_personal_directions():
-    assert reply_allowed('Paracetamol tablets commonly contain 500 mg of medicine.')
-    assert not reply_allowed('You should take 500 mg now.')
+def test_guardrail_decisions_require_structured_values():
+    input_decision = InputDecision.model_validate({
+        'action': 'allow', 'category': 'health', 'severity': 'moderate',
+        'confidence': 0.4, 'summary': 'General education', 'topic': 'medicine',
+        'language': 'english',
+    })
+    output_decision = OutputDecision.model_validate({
+        'allowed': False, 'reason': 'personalized dosing',
+        'replacement': 'Please ask a clinician or pharmacist for personal dosing advice.',
+        'safe_source_ids': [],
+    })
+    assert input_decision.action == 'allow'
+    assert output_decision.replacement
 
 
 def test_non_health_prompt_gets_scope_redirect_without_model(client, app, monkeypatch):
@@ -120,10 +119,11 @@ def test_session_isolation_and_privacy(client, app):
         assert other.get('/api/staff/reviews').status_code == 401
 
 
-def test_state_survives_restart(client, settings):
+def test_state_survives_restart(client, app, settings):
     ask(client, 'How do I book an appointment?')
     token = client.cookies.get('mediagent_session')
     restarted = create_app(settings)
+    restarted.state.service.graph.guardrails = app.state.service.graph.guardrails
     with TestClient(restarted) as other:
         other.cookies.set('mediagent_session', token)
         assert len(other.get('/api/history').json()['turns']) == 1
@@ -152,7 +152,7 @@ def test_rate_limit(client):
     assert ask(client, 'hi').status_code == 429
 
 
-def test_gemini_gets_only_fixed_public_intent(client, app, monkeypatch):
+def test_input_guard_blocks_personal_identifiers_before_generation(client, app, monkeypatch):
     settings = app.state.service.graph.settings
     settings.gemini_api_key = 'fake'
     settings.gemini_model = 'test-model'
@@ -164,10 +164,20 @@ def test_gemini_gets_only_fixed_public_intent(client, app, monkeypatch):
             'candidates': [{'content': {'parts': [{'text': '[0]'}]}}]})
 
     monkeypatch.setattr(httpx, 'post', generate)
+    original = app.state.service.graph.guardrails.inspect_input
+    def inspect(query, context=None, previous_topic=None):
+        decision = original(query, context, previous_topic)
+        if 'Alice' in query:
+            return decision.model_copy(update={
+                'action': 'privacy', 'severity': 'general', 'confidence': 0.95,
+                'summary': 'Personal information supplied',
+            })
+        return decision
+    monkeypatch.setattr(app.state.service.graph.guardrails, 'inspect_input', inspect)
     answer = ask(client, 'How can I book an appointment for Alice?').json()
-    assert answer['sources']
-    assert requests and 'Alice' not in json.dumps(requests)
-    assert 'AI selection' in answer['mode']
+    assert answer['route'] == 'privacy'
+    assert answer['sources'] == []
+    assert requests == []
 
 
 @pytest.mark.parametrize('response', ['[999]', '{"advice":"take pills"}', 'not json'])
@@ -176,9 +186,20 @@ def test_bad_model_output_falls_back(client, app, monkeypatch, response):
     app.state.service.graph.settings.gemini_model = 'fake'
     monkeypatch.setattr(httpx, 'post', lambda url, **kwargs: httpx.Response(200,
         request=httpx.Request('POST', url), json={'candidates': [{'content': {'parts': [{'text': response}]}}]}))
+    monkeypatch.setattr(
+        app.state.service.graph.guardrails,
+        'inspect_output',
+        lambda query, answer, category, sources=None, severity='general': OutputDecision(
+            allowed=False,
+            reason='unsupported answer',
+            replacement='Please use the official hospital booking information in the listed sources.',
+            safe_source_ids=list(range(len(sources or []))),
+        ),
+    )
     answer = ask(client, 'How do I book an appointment?').json()
     assert answer['sources'] and 'AI selection' not in answer['mode']
-    assert 'take pills' not in answer['text']
+    assert response not in answer['text']
+    assert 'LLM guardrail rewrite' in answer['mode']
 
 
 def test_model_quota_falls_back(client, app, monkeypatch):

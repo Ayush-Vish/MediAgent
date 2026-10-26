@@ -6,13 +6,16 @@ import httpx
 from fastapi.testclient import TestClient
 
 from app.main import create_app
+from tests.conftest import FakeGuardrails
 
 
 def telegram_app(settings):
     settings.telegram_bot_token = 'fake-token'
     settings.telegram_webhook_secret = 'test-webhook-secret'
     settings.channel_hash_secret = 'x' * 32
-    return create_app(settings)
+    app = create_app(settings)
+    app.state.service.graph.guardrails = FakeGuardrails()
+    return app
 
 
 def update(event_id=1):

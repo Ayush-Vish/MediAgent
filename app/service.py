@@ -1,6 +1,5 @@
 import hashlib
 import json
-import re
 import secrets
 import time
 from collections import OrderedDict
@@ -108,10 +107,8 @@ class ChatService:
                 confidence_pct = int(alert['confidence'] * 100)
                 summary = alert['summary']
 
-                # Redact potential personal names/phone numbers from the snippet shown to staff
-                sanitized_msg = re.sub(r'\b(my name is|called|named)\s+\w+', '', message, flags=re.IGNORECASE).strip()
                 user_label = f"Patient: {user['name']} (Ph: {user.get('phone') or 'N/A'})" if user else "Anonymous Patient"
-                staff_question = f"[{sev_level.upper()} · {confidence_pct}% conf] [{user_label}] {summary} — User query: \"{sanitized_msg[:120]}\""
+                staff_question = f"[{sev_level.upper()} · {confidence_pct}% conf] [{user_label}] {summary}"
 
                 review = {
                     'id': review_id,
@@ -121,7 +118,7 @@ class ChatService:
                     'confidence': alert['confidence'],
                     'summary': summary,
                     'question': staff_question,
-                    'user_message': sanitized_msg,
+                    'user_message': summary,
                     'reply': None,
                     'user': {
                         'id': user['id'],
@@ -184,8 +181,15 @@ class ChatService:
             session['turns'] = session['turns'][-50:]
             self.store.put(key, 'session', session, permanent=bool(user))
             if user:
-                for role, text in [('user', message), ('assistant', answer['text'])]:
-                    self.save_message(key, user['id'], role, text, answer=answer if role == 'assistant' else None)
+                message_time = time.time()
+                for index, (role, text) in enumerate([
+                    ('user', message), ('assistant', answer['text'])
+                ]):
+                    self.save_message(
+                        key, user['id'], role, text,
+                        answer=answer if role == 'assistant' else None,
+                        timestamp=message_time + index * .000001,
+                    )
             else:
                 self.recent_messages[key] = (context + [
                     {'role': 'user', 'text': message}, {'role': 'assistant', 'text': answer['text']}])[-3:]
@@ -194,10 +198,12 @@ class ChatService:
                     self.recent_messages.popitem(last=False)
             return answer
 
-    def save_message(self, conversation, user_id, role, text, actor=None, answer=None):
+    def save_message(self, conversation, user_id, role, text, actor=None, answer=None,
+                     timestamp=None):
         message = {'id': 'message:' + str(uuid4()), 'conversation_id': conversation,
                    'user_id': user_id, 'role': role, 'text': text,
-                   'timestamp': time.time(), 'actor': actor, 'answer': answer}
+                   'timestamp': time.time() if timestamp is None else timestamp,
+                   'actor': actor, 'answer': answer}
         self.store.put(message['id'], 'patient_message', message, permanent=True)
         return message
 

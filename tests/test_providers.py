@@ -1,6 +1,7 @@
 import json
 
 import httpx
+import pytest
 
 from app.providers import GeminiProvider, LocalProvider, OpenAICompatibleProvider, ProviderConfig, parse_ids
 
@@ -52,6 +53,36 @@ def test_openrouter_strategy_supports_openai_compatible_shape(monkeypatch):
     assert result == [0]
     assert calls[0][0] == 'https://openrouter.ai/api/v1/chat/completions'
     assert calls[0][1]['headers']['Authorization'] == 'Bearer secret'
+
+
+@pytest.mark.parametrize('kind', ['gemini', 'compatible'])
+def test_provider_guardrails_request_and_parse_structured_json(kind, monkeypatch):
+    provider = (GeminiProvider(ProviderConfig('secret', 'guard-model', 10)) if kind == 'gemini'
+                else OpenAICompatibleProvider(ProviderConfig('secret', 'guard-model', 10),
+                                              'https://example.com/v1', 'groq'))
+    calls = []
+
+    def post(url, **kwargs):
+        calls.append(kwargs['json'])
+        content = json.dumps({
+            'action': 'allow', 'category': 'health', 'severity': 'moderate',
+            'confidence': 0.5, 'summary': 'General education', 'topic': 'medicine',
+            'language': 'english',
+        }) if len(calls) == 1 else json.dumps({
+            'allowed': True, 'reason': 'safe', 'replacement': '', 'safe_source_ids': [],
+        })
+        payload = ({'candidates': [{'content': {'parts': [{'text': content}]}}]}
+                   if kind == 'gemini' else {'choices': [{'message': {'content': content}}]})
+        return httpx.Response(200, request=httpx.Request('POST', url), json=payload)
+
+    monkeypatch.setattr(provider, '_post', post)
+    assert provider.guard_input('What is paracetamol?', [], None)['action'] == 'allow'
+    assert provider.guard_output('question', 'answer', 'health')['allowed'] is True
+    assert all((call['generationConfig']['temperature'] if kind == 'gemini'
+                else call['temperature']) == 0 for call in calls)
+    assert all(call.get('response_format', {}).get('type') == 'json_object'
+               if kind == 'compatible' else call['generationConfig']['responseMimeType'] == 'application/json'
+               for call in calls)
 
 
 def test_provider_setting_routes_openrouter(settings):

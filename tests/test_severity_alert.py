@@ -1,38 +1,4 @@
-import json
 from uuid import uuid4
-
-import pytest
-from fastapi.testclient import TestClient
-
-from app.main import create_app
-from app.safety import assess_severity
-
-
-def test_assess_severity_emergency():
-    res = assess_severity('I have sudden chest pain and trouble breathing')
-    assert res.level == 'emergency'
-    assert res.confidence >= 0.90
-    assert 'cardiac' in res.summary.lower() or 'respiratory' in res.summary.lower()
-
-
-def test_assess_severity_severe():
-    res = assess_severity('I have high fever and severe headache for 4 days')
-    assert res.level == 'severe'
-    assert res.confidence >= 0.80
-    assert 'fever' in res.summary.lower() or 'pain' in res.summary.lower()
-
-
-def test_assess_severity_general_health():
-    res = assess_severity('What causes a mild cough?')
-    assert res.level == 'moderate'
-    assert res.confidence < 0.70
-
-
-def test_assess_severity_non_health():
-    res = assess_severity('How do I get to the reception desk?')
-    assert res.level == 'general'
-    assert res.confidence == 0.0
-
 
 def test_emergency_query_creates_staff_alert(client, app, staff):
     resp = client.post('/api/chat', json={

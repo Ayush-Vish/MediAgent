@@ -1,6 +1,9 @@
 from uuid import uuid4
 from threading import Barrier
 
+import httpx
+import pytest
+
 from app.config import Settings
 from app.web_search import WebSearchAgent, sanitize_search_query
 
@@ -40,7 +43,7 @@ def test_graph_uses_rewritten_query_only_after_local_miss(client, app, settings,
 
     assert fake.calls == [('ear pain causes warning signs', 'health')]
     assert answer['evidence'] == 'limited'
-    assert answer['mode'] == 'lexical + web (llm-query)'
+    assert answer['mode'] == 'lexical + web (llm-query) + LLM guardrail'
     assert answer['sources'][0]['url'] == 'https://www.nhs.uk/conditions/earache/'
     assert '[S1]' in answer['text']
 
@@ -77,6 +80,7 @@ def test_graph_runs_local_and_web_retrieval_in_parallel(app, settings, monkeypat
     result = graph.run('What is general cough education?')
     assert result['sources']
     assert result['mode'] == 'lexical + web (direct-query)'
+    assert result['answer']['mode'].endswith('+ LLM guardrail')
 
 
 def test_unknown_medical_term_can_use_trusted_web_evidence(client, app, settings, monkeypatch):
@@ -93,7 +97,7 @@ def test_unknown_medical_term_can_use_trusted_web_evidence(client, app, settings
     assert answer['sources']
 
 
-def test_search_rejects_untrusted_domains_and_injected_pages():
+def test_search_rejects_untrusted_domains_and_defers_content_review_to_llm_guardrail():
     settings = Settings(_env_file=None, web_search_enabled=True, web_search_max_results=3)
     results = [
         {'title': 'Untrusted', 'href': 'https://example.com/health'},
@@ -110,8 +114,10 @@ def test_search_rejects_untrusted_domains_and_injected_pages():
     assert agent.allowed_domains('health') == {'nhs.uk', 'mayoclinic.org', 'medlineplus.gov'}
     sources = agent.search('ear pain causes', 'health')
 
-    assert [source['url'] for source in sources] == ['https://medlineplus.gov/ear.html']
-    assert sources[0]['web'] is True
+    assert [source['url'] for source in sources] == [
+        'https://www.nhs.uk/injected', 'https://medlineplus.gov/ear.html',
+    ]
+    assert all(source['web'] is True for source in sources)
 
 
 def test_search_query_sanitizer_rejects_operators_and_limits_words():
@@ -140,3 +146,38 @@ def test_web_results_are_balanced_across_trusted_domains():
     assert {source['url'].split('/')[2].removeprefix('www.') for source in sources} == {
         'nhs.uk', 'mayoclinic.org', 'medlineplus.gov'
     }
+
+
+def test_firecrawl_search_uses_env_key_and_inline_markdown(monkeypatch):
+    settings = Settings(_env_file=None, web_search_enabled=True, web_search_backend='firecrawl',
+                        firecrawl_api_key='test-firecrawl-key', web_search_max_results=2)
+    calls = []
+
+    def post(url, **kwargs):
+        calls.append((url, kwargs))
+        return httpx.Response(200, request=httpx.Request('POST', url), json={
+            'success': True,
+            'data': {'web': [{
+                'url': 'https://www.nhs.uk/conditions/earache/',
+                'title': 'Earache',
+                'markdown': 'General patient information about ear pain and warning signs. ' * 4,
+            }]},
+        })
+
+    monkeypatch.setattr(httpx, 'post', post)
+    agent = WebSearchAgent(
+        settings,
+        fetch_fn=lambda url, domains: (_ for _ in ()).throw(AssertionError('inline result expected')),
+    )
+    sources = agent.search('ear pain', 'health')
+
+    assert len(calls) == 3
+    assert all(url == 'https://api.firecrawl.dev/v2/search' for url, _ in calls)
+    assert all(call['headers']['Authorization'] == 'Bearer test-firecrawl-key' for _, call in calls)
+    assert all(call['json']['scrapeOptions']['formats'] == ['markdown'] for _, call in calls)
+    assert [source['url'] for source in sources] == ['https://www.nhs.uk/conditions/earache/']
+
+
+def test_firecrawl_backend_requires_key():
+    with pytest.raises(ValueError, match='FIRECRAWL_API_KEY'):
+        Settings(_env_file=None, web_search_backend='firecrawl')

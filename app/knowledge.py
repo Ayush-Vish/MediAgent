@@ -11,7 +11,7 @@ from uuid import NAMESPACE_URL, uuid5
 
 from app.config import ROOT
 from app.schemas import Citation, SourceInput
-from app.safety import INJECTION, normalize
+from app.safety import normalize
 from app.streaming import emit_status
 
 log = logging.getLogger(__name__)
@@ -114,7 +114,7 @@ class Knowledge:
     def active(self, category):
         today = date.today()
         return [s for s in self.store.approved_sources(self.settings.hospital_id, category)
-                if not s.get('conflict') and not INJECTION.search(normalize(s['text']))
+                if not s.get('conflict')
                 and 0 <= (today - date.fromisoformat(s['checked_at'])).days <= self.settings.source_max_age_days]
 
     @traced('retrieval')

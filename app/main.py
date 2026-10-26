@@ -21,7 +21,6 @@ from app.channels import Channels
 from app.config import ROOT, Settings
 from app.graph import ChatGraph
 from app.knowledge import Knowledge
-from app.safety import reply_allowed
 from app.schemas import (Answer, AuthResponse, ChatRequest, EmbedRequest,
                          PatientSummaryResponse, RagSearchRequest, RerankRequest,
                          ReviewReply, SourceDecision, SourceInput, UserLogin,
@@ -289,6 +288,9 @@ def create_app(settings=None):
             try:
                 with span('chat.stream'):
                     answer = service.chat(token, body.message, str(body.request_id), user=user)
+                    # Only stream text after the LLM output guardrail approves
+                    # or safely rewrites the complete answer.
+                    emit('draft', {'text': answer['text']})
                     emit('done', answer)
             except (LLMUnavailable, LookupError, OverflowError) as error:
                 status = 503 if isinstance(error, LLMUnavailable) else 401 if isinstance(error, LookupError) else 429
@@ -424,8 +426,12 @@ def create_app(settings=None):
 
     @app.post('/api/staff/reviews/{review_id}/reply')
     def reply(review_id: str, body: ReviewReply, actor=Depends(staff)):
-        if not reply_allowed(body.reply):
-            raise HTTPException(422, 'Use general guidance without personal identifiers, diagnosis or dosing.')
+        try:
+            decision = service.graph.guardrails.inspect_output('', body.reply, 'health', [], 'general')
+        except LLMUnavailable as error:
+            raise HTTPException(503, str(error)) from None
+        if not decision.allowed:
+            raise HTTPException(422, decision.replacement)
         with store.lock(review_id):
             review = store.get(review_id) if review_id.startswith('review:') else None
             if not review:

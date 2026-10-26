@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     # approved hospital knowledge.
     web_search_enabled: bool = True
     web_search_backend: str = 'auto'
+    firecrawl_api_key: str = ''
     web_search_max_results: int = Field(default=3, ge=1, le=5)
     web_search_timeout_seconds: float = Field(default=8.0, ge=1.0, le=20.0)
     web_search_trusted_domains: str = 'nhs.uk,mayoclinic.org,medlineplus.gov'
@@ -111,8 +112,10 @@ class Settings(BaseSettings):
             raise ValueError('WhatsApp configuration is incomplete')
         if self.hybrid_enabled and not (self.qdrant_url or self.qdrant_path):
             raise ValueError('Hybrid retrieval requires QDRANT_URL or QDRANT_PATH')
-        if self.web_search_backend.strip().lower() not in {'auto', 'duckduckgo'}:
-            raise ValueError('WEB_SEARCH_BACKEND must be auto or duckduckgo')
+        if self.web_search_backend.strip().lower() not in {'auto', 'duckduckgo', 'firecrawl'}:
+            raise ValueError('WEB_SEARCH_BACKEND must be auto, duckduckgo, or firecrawl')
+        if self.web_search_backend.strip().lower() == 'firecrawl' and not self.firecrawl_api_key:
+            raise ValueError('Firecrawl web search requires FIRECRAWL_API_KEY')
         if self.web_search_enabled and not self.web_search_trusted_domains.strip() and not self.portal_url:
             raise ValueError('Web search requires trusted domains or a hospital portal URL')
         if not 1 <= self.retention_hours <= 168:

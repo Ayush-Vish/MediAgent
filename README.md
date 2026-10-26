@@ -281,7 +281,10 @@ Pool mode tries OpenRouter, Gemini, Groq, then the compatible endpoint. Missing 
 pairs are skipped. The daily app quota in pool mode is shared across providers.
 All-provider exhaustion returns HTTP 503 with `code: LLM_UNAVAILABLE` and a safe
 `error` message that the chat UI displays; failed turns are not saved as answers.
-Greeting and safety responses still work without an LLM.
+Input classification and final-output review use structured LLM guardrail calls,
+so at least one configured AI provider is required for every chat turn. Provider
+output is buffered and is shown to the user only after the output guardrail allows
+or safely rewrites the complete answer.
 
 Application code can use the provider-independent object directly:
 
@@ -316,6 +319,12 @@ provider is unavailable. The default health allowlist is
 requires a different set. Hospital queries are restricted to the hostname in
 `HOSPITAL_PORTAL_URL` (or the bundled CMC portal). If rewriting or search fails,
 local retrieval and the normal abstention/general-health behavior remain available.
+
+Set `FIRECRAWL_API_KEY` and use `WEB_SEARCH_BACKEND=firecrawl` to search through
+Firecrawl's `/v2/search` API and reuse the returned page Markdown directly. With
+`WEB_SEARCH_BACKEND=auto`, Firecrawl is preferred whenever its key is configured;
+otherwise the DuckDuckGo client remains the fallback. API credentials are read only
+from environment variables and are never written to logs or committed files.
 
 Groq uses its [OpenAI-compatible API](https://console.groq.com/docs/openai).
 Add `GROQ_API_KEYS=key1,key2` (or `GROQ_API_KEY` for one key) and

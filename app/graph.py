@@ -1,14 +1,14 @@
 import logging
 from app.observability import traced, event
-import re
 from datetime import date
 from typing import TypedDict
 
 from langgraph.graph import END, START, StateGraph
 from langsmith import tracing_context
 
-from app.knowledge import TOPICS, citation, topic_for
-from app.safety import HEALTH, assess_severity, guard, normalize, reply_allowed
+from app.guardrails import LLMGuardrails
+from app.knowledge import TOPICS, citation
+from app.safety import answer_for_input_decision
 from app.schemas import Answer, SeverityInfo
 from app.providers import configured_provider
 from app.llm_pool import LLMUnavailable
@@ -34,6 +34,7 @@ class ChatState(TypedDict, total=False):
     web_sources: list
     local_mode: str
     web_mode: str
+    language: str
     severity: dict | None
     alert: dict | None
     guard_decision: object | None
@@ -41,24 +42,28 @@ class ChatState(TypedDict, total=False):
     is_human_request: bool
 
 
-def _format_local_response(query: str, citations: list, hospital_name: str, web: bool = False) -> str:
-    is_hinglish = bool(re.search(r'\b(hinglish|hindi|samjhao|batao|karein|chahiye)\b', normalize(query)))
+def _format_local_response(language: str, citations: list, hospital_name: str, web: bool = False) -> str:
     items = []
     for c in citations:
-        body = c.excerpt.replace("Read the linked source for full context.", "").strip()
-        body = re.sub(r'\s+', ' ', body)
+        body = ' '.join(c.excerpt.replace(
+            "Read the linked source for full context.", ""
+        ).split())
         items.append(f"• **{c.title}**: {body} [{c.id}]")
 
     joined_items = '\n\n'.join(items)
     if web:
-        if is_hinglish:
+        if language == 'hinglish':
             return f"Trusted public medical sources se mili jaankari:\n\n{joined_items}"
+        if language == 'hindi':
+            return f"विश्वसनीय सार्वजनिक चिकित्सा स्रोतों से मिली जानकारी:\n\n{joined_items}"
         return f"Based on trusted public medical sources, here is the key information:\n\n{joined_items}"
-    if is_hinglish:
+    if language == 'hinglish':
         return (
             f"Yahan {hospital_name} ki official guidelines ke anusar zaroori jaankari di gayi hai:\n\n"
             f"{joined_items}"
         )
+    if language == 'hindi':
+        return f"{hospital_name} के आधिकारिक स्रोतों के अनुसार जानकारी:\n\n{joined_items}"
     return (
         f"Based on official guidelines from {hospital_name}, here is the key information:\n\n"
         f"{joined_items}"
@@ -69,6 +74,7 @@ class ChatGraph:
     def __init__(self, knowledge, store, settings, web_search_agent=None):
         self.knowledge, self.store, self.settings = knowledge, store, settings
         self.provider, self.provider_config = configured_provider(settings)
+        self.guardrails = LLMGuardrails(settings)
         self.web_search_agent = web_search_agent or WebSearchAgent(settings)
         builder = StateGraph(ChatState)
         builder.add_node('route', self.route)
@@ -76,6 +82,7 @@ class ChatGraph:
         builder.add_node('web_search', self.web_search)
         builder.add_node('merge_evidence', self.merge_evidence)
         builder.add_node('respond', self.respond)
+        builder.add_node('moderate_output', self.moderate_output)
         
         # Local and trusted-web retrieval are independent, so run them in
         # parallel and join both branches before answer generation.
@@ -84,57 +91,28 @@ class ChatGraph:
         builder.add_edge('route', 'web_search')
         builder.add_edge(['retrieve', 'web_search'], 'merge_evidence')
         builder.add_edge('merge_evidence', 'respond')
-        builder.add_edge('respond', END)
+        builder.add_edge('respond', 'moderate_output')
+        builder.add_edge('moderate_output', END)
         self.graph = builder.compile()
 
     @traced('routing')
     def route(self, state):
         query = state['query']
-
-        # Guard checks: emergency, PII leaks, injections, treatment requests
-        guard_decision = guard(query)
-
-        # Greetings check
-        is_greeting = normalize(query) in {'hi', 'hello', 'hey', '/start', 'help'}
-
-        # Human/staff review request
-        is_human_request = bool(re.search(r'\b(human|staff|person|agent)\b', normalize(query)))
-
-        # Severity assessment
-        severity = assess_severity(query)
-        severity_dict = {'level': severity.level, 'confidence': severity.confidence,
-                         'summary': severity.summary}
-
-        # Context inspection
         context = state.get('context', [])
-        previous_user_msg = next((m['text'] for m in reversed(context) if m.get('role') == 'user'), None)
-
-        # Topic detection
-        is_hinglish_request = bool(re.search(r'\b(hinglish|hindi|hindi me|hinglish me|hindi mein|hinglish mein|samjhao|batao|anuvad|translate)\b', normalize(query)))
-        is_followup = bool(re.search(r'\b(he|she|him|her|it|this|that|problem|facing|happen|cause|causes|why|what is|meaning|mean)\b', normalize(query)))
-
-        topic = topic_for(query)
-        if not topic and (is_hinglish_request or is_followup or normalize(query) in {'tell me more', 'more', 'and then', 'what next'}):
-            topic = state.get('previous_topic') or (topic_for(previous_user_msg) if previous_user_msg else None)
-
-        # Category determination
-        if topic in ('appointment', 'preparation', 'contact', 'insurance', 'campus', 'changes'):
-            category = 'hospital'
-        elif topic in ('medicine', 'cough', 'fever'):
-            category = 'health'
-        elif re.search(r'\b(hospital|appointment|book|booking|visit\w*|opd|ward|admit\w*|admission|discharge|billing|cost|price|tariff|fee|insurance|document\w*|parking|reception|counter|helpdesk|contact|timing|hour|campus|cmc|vellore|portal|registration)\b', normalize(query)) and not HEALTH.search(normalize(query)):
-            category = 'hospital'
-        else:
-            category = 'health'
+        decision = self.guardrails.inspect_input(query, context, state.get('previous_topic'))
+        topic = decision.topic if decision.topic in TOPICS else None
+        guard_decision = answer_for_input_decision(decision)
 
         return {
             'query': query,
             'topic': topic,
-            'category': category,
-            'severity': severity_dict,
+            'category': decision.category,
+            'severity': {'level': decision.severity, 'confidence': decision.confidence,
+                         'summary': decision.summary},
             'guard_decision': guard_decision,
-            'is_greeting': is_greeting,
-            'is_human_request': is_human_request,
+            'is_greeting': decision.action == 'welcome',
+            'is_human_request': decision.action == 'human_review',
+            'language': decision.language,
             'context': context,
         }
 
@@ -300,20 +278,6 @@ class ChatGraph:
 
         category = state.get('category', 'health')
         sources = state.get('sources', [])
-        context = state.get('context', [])
-        has_health_context = any(
-            bool(HEALTH.search(normalize(m.get('text', ''))))
-            for m in context
-            if m.get('role') == 'user'
-        )
-
-        if (category == 'health' and not sources and not state.get('topic') and
-                not HEALTH.search(normalize(query)) and not has_health_context):
-            return {'answer': Answer(
-                route='health',
-                text='I can help with general health education and hospital questions. What health or hospital topic would you like to ask about?',
-                evidence='none',
-            ).model_dump(), 'alert': None}
 
         # 4. Hospital questions without approved sources -> abstain (handoff)
         if category == 'hospital' and not sources:
@@ -342,7 +306,8 @@ class ChatGraph:
             elif sources:
                 # Keep a rejected model draft relevant by falling back to the
                 # retrieved excerpts instead of unrelated generic wording.
-                text = _format_local_response(query, citations, self.settings.hospital_name, web_sources)
+                text = _format_local_response(state.get('language', 'english'), citations,
+                                              self.settings.hospital_name, web_sources)
                 evidence = 'limited' if web_sources else 'supported'
 
         # If not answered by sources and category is health, call AI general answer
@@ -354,7 +319,8 @@ class ChatGraph:
                 citations = []
             elif sources and self.provider.name == 'local':
                 web_sources = any(source.get('web') for source in sources)
-                text = _format_local_response(query, citations, self.settings.hospital_name, web_sources)
+                text = _format_local_response(state.get('language', 'english'), citations,
+                                              self.settings.hospital_name, web_sources)
                 evidence = 'limited' if web_sources else 'supported'
             else:
                 text = ('I am here to help with health questions. For this specific symptom or condition, '
@@ -366,26 +332,6 @@ class ChatGraph:
             text = ('I do not have enough verified information to answer this question. '
                     'Please consult a healthcare professional.')
             evidence = 'none'
-
-        # Severity warnings
-        if severity_level == 'emergency':
-            emergency_prefix = (
-                '🚨 **EMERGENCY NOTICE**: This sounds like it could require immediate medical '
-                'attention. Please call emergency services (112 / 108 / 911) or go to the '
-                'nearest emergency room right away. Do not wait for an online reply.\n\n'
-            )
-            text = emergency_prefix + text
-        elif severity_level == 'severe' and severity_confidence >= ALERT_THRESHOLD:
-            warning_prefix = (
-                '⚠️ **Important Health Notice**: Based on your description, this may indicate a '
-                'severe condition needing prompt medical attention. Please consult a doctor as soon as possible.\n\n'
-            )
-            text = warning_prefix + text
-
-        # Health disclaimer
-        if category == 'health' and '⚕️' not in text:
-            text += ('\n\n⚕️ *This is general health education only, not a medical diagnosis '
-                     'or personal treatment plan. Always consult a doctor for personal care.*')
 
         severity_info = SeverityInfo(
             level=severity_level,
@@ -410,6 +356,29 @@ class ChatGraph:
 
         return {'answer': answer.model_dump(), 'alert': alert}
 
+    @traced('guardrail.output')
+    def moderate_output(self, state):
+        answer = dict(state['answer'])
+        emit_status('answer', 'Checking answer safety…')
+        decision = self.guardrails.inspect_output(
+            state['query'], answer['text'], state.get('category', 'health'),
+            answer.get('sources', []),
+            (state.get('severity') or {}).get('level', 'general'),
+        )
+        citations = answer.get('sources', [])
+        answer['sources'] = [
+            citation for index, citation in enumerate(citations)
+            if index in decision.safe_source_ids
+        ]
+        if decision.allowed:
+            answer['mode'] = f"{answer.get('mode', 'local')} + LLM guardrail"
+            return {'answer': answer}
+        answer.update(
+            text=decision.replacement.strip(),
+            mode=f"{answer.get('mode', 'local')} + LLM guardrail rewrite",
+        )
+        return {'answer': answer}
+
     @traced('llm.grounded_answer')
     def generate_answer(self, query, category, sources, context=None):
         provider, provider_config = configured_provider(self.settings)
@@ -423,16 +392,9 @@ class ChatGraph:
             return None
         try:
             text = provider.generate(query, category, sources, context)
-            if not isinstance(text, str) or not text or len(text) > 4000 or not reply_allowed(text):
-                log.info('AI answer rejected: is_str=%s, len=%s, allowed=%s', isinstance(text, str), len(text) if text else 0, reply_allowed(text) if text else False)
-                return None
-            # Normalize full-width or variant brackets emitted by LLMs (e.g. 【S1】 -> [S1])
-            text = re.sub(r'[【〔（\(](S\d+)[】〕）\)]', r'[\1]', text)
-            valid = {f'S{i + 1}' for i in range(len(sources))}
-            cited = set(re.findall(r'\[(S\d+)\]', text))
-            event('answer.citations', valid=bool(cited) and cited.issubset(valid), count=len(cited))
-            if not cited or not cited.issubset(valid):
-                log.info('AI answer citations invalid: cited=%s, valid=%s', cited, valid)
+            if not isinstance(text, str) or not text or len(text) > 4000:
+                log.info('AI answer structurally invalid: is_str=%s, len=%s',
+                         isinstance(text, str), len(text) if text else 0)
                 return None
             return text
         except (LLMUnavailable, PoolUnavailable):
@@ -456,8 +418,9 @@ class ChatGraph:
             return None
         try:
             text = provider.generate_general(query, context)
-            if not isinstance(text, str) or not text or len(text) > 4000 or not reply_allowed(text):
-                log.info('AI general answer rejected: is_str=%s, len=%s, allowed=%s', isinstance(text, str), len(text) if text else 0, reply_allowed(text) if text else False)
+            if not isinstance(text, str) or not text or len(text) > 4000:
+                log.info('AI general answer structurally invalid: is_str=%s, len=%s',
+                         isinstance(text, str), len(text) if text else 0)
                 return None
             return text
         except (LLMUnavailable, PoolUnavailable):

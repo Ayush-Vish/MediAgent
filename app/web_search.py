@@ -11,8 +11,7 @@ from urllib.parse import urljoin, urlsplit
 import httpx
 from bs4 import BeautifulSoup
 
-from app.safety import INJECTION, normalize
-from app.observability import web_search_results
+from app.observability import event, web_search_results
 
 log = logging.getLogger(__name__)
 
@@ -31,7 +30,7 @@ def sanitize_search_query(value: str | None) -> str | None:
         return None
     value = ' '.join(_QUERY_CLEANUP.sub(' ', value).split())[:200].strip()
     value = ' '.join(value.split()[:16])
-    if len(value) < 3 or INJECTION.search(normalize(value)):
+    if len(value) < 3:
         return None
     return value
 
@@ -52,8 +51,16 @@ class WebSearchAgent:
 
     def __init__(self, settings, search_fn=None, fetch_fn=None):
         self.settings = settings
-        self._search_fn = search_fn or self._ddgs_search
+        self._search_fn = search_fn or self._configured_search
         self._fetch_fn = fetch_fn or self._fetch_page
+
+    def _configured_search(self, query: str, max_results: int):
+        backend = self.settings.web_search_backend.strip().lower()
+        if backend == 'firecrawl' or (backend == 'auto' and self.settings.firecrawl_api_key):
+            event('web_search.backend', backend='firecrawl')
+            return self._firecrawl_search(query, max_results)
+        event('web_search.backend', backend='duckduckgo')
+        return self._ddgs_search(query, max_results)
 
     def allowed_domains(self, category: str) -> set[str]:
         configured = {
@@ -111,17 +118,18 @@ class WebSearchAgent:
                 if not _host_allowed(url, domains) or url in seen:
                     continue
                 seen.add(url)
-                try:
-                    fetched = self._fetch_fn(url, domains)
-                except Exception as error:
-                    log.info('Web result fetch skipped: %s', type(error).__name__)
-                    continue
+                inline_text = str(result.get('_content') or '').strip()
+                if inline_text:
+                    fetched = (str(result.get('title') or 'Trusted medical source'), inline_text, url)
+                else:
+                    try:
+                        fetched = self._fetch_fn(url, domains)
+                    except Exception as error:
+                        log.info('Web result fetch skipped: %s', type(error).__name__)
+                        continue
                 if not fetched:
                     continue
                 title, text, final_url = fetched
-                if INJECTION.search(normalize(text)):
-                    log.info('Web result rejected because it contains instruction-like content')
-                    continue
                 source_id = hashlib.sha256(final_url.encode()).hexdigest()[:20]
                 sources.append({
                     'id': f'web:{source_id}',
@@ -139,6 +147,38 @@ class WebSearchAgent:
         web_search_results(query, sources)
         return sources
 
+    def _firecrawl_search(self, query: str, max_results: int):
+        response = httpx.post(
+            'https://api.firecrawl.dev/v2/search',
+            headers={'Authorization': f'Bearer {self.settings.firecrawl_api_key}',
+                     'Content-Type': 'application/json'},
+            timeout=self.settings.web_search_timeout_seconds,
+            json={
+                'query': query,
+                'limit': max_results,
+                'sources': [{'type': 'web'}],
+                'scrapeOptions': {'formats': ['markdown'], 'onlyMainContent': True},
+            },
+        )
+        response.raise_for_status()
+        payload = response.json()
+        data = payload.get('data', []) if isinstance(payload, dict) else []
+        items = data.get('web', []) if isinstance(data, dict) else data
+        results = []
+        for item in items if isinstance(items, list) else []:
+            if not isinstance(item, dict):
+                continue
+            metadata = item.get('metadata') if isinstance(item.get('metadata'), dict) else {}
+            url = item.get('url') or metadata.get('sourceURL') or metadata.get('url')
+            if not isinstance(url, str):
+                continue
+            results.append({
+                'href': url,
+                'title': item.get('title') or metadata.get('title') or 'Trusted medical source',
+                '_content': item.get('markdown') or item.get('content') or '',
+            })
+        return results
+
     def _ddgs_search(self, query: str, max_results: int):
         # Imported lazily so deployments that keep web search disabled do not
         # require or initialize a network-search client.
@@ -146,7 +186,8 @@ class WebSearchAgent:
 
         return DDGS(timeout=self.settings.web_search_timeout_seconds).text(
             query,
-            backend=self.settings.web_search_backend,
+            backend='auto' if self.settings.web_search_backend == 'auto'
+            else self.settings.web_search_backend,
             safesearch='on',
             max_results=max_results,
         )

@@ -1,7 +1,6 @@
 """Provider SSE decoding and per-request draft delivery."""
 from contextvars import ContextVar
 import json
-import re
 
 import httpx
 
@@ -15,30 +14,13 @@ def emit_status(stage: str, text: str) -> None:
         sink('status', {'stage': stage, 'text': text})
 
 
-def preview(raw):
-    from app.providers import clean_llm_output
-    from app.safety import reply_allowed
-    # Never expose an unfinished reasoning block or a partial opening tag.
-    text = re.sub(r'<think>.*?</think>', '', raw, flags=re.DOTALL | re.IGNORECASE)
-    text = re.sub(r'<think>.*$', '', text, flags=re.DOTALL | re.IGNORECASE)
-    text = re.sub(r'<[^>]*$', '', text)
-    if len(text) < 16 or re.match(r"(?:Here's a thinking|Here is a thinking|Thinking Process)", text, re.I):
-        return ''
-    cleaned = clean_llm_output(text) or ''
-    return cleaned if reply_allowed(cleaned) else ''
-
-
 def provider_stream(url, headers, format, **kwargs):
-    sink = stream_sink.get()
     with httpx.stream('POST', url, headers=headers, **kwargs) as response:
         if not response.is_success:
             response.read()
             return response
         raw = ''
         finished = False
-        last_preview = None
-        if sink:
-            sink('draft', {'text': ''})
         data_lines = []
         def packets():
             for line in response.iter_lines():
@@ -73,10 +55,6 @@ def provider_stream(url, headers, format, **kwargs):
             raw += delta
             if len(raw) > 16000:
                 raise ValueError('Provider response exceeds stream limit')
-            visible = preview(raw)
-            if sink and visible != last_preview:
-                sink('draft', {'text': visible})
-                last_preview = visible
         if not finished:
             raise ValueError('Provider stream ended before completion')
         body = {'candidates': [{'content': {'parts': [{'text': raw}]}}]} if format == 'gemini' else {

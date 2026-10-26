@@ -31,5 +31,9 @@ services:
         value: false
       - key: WEB_SEARCH_ENABLED
         value: true
+      - key: WEB_SEARCH_BACKEND
+        value: auto
+      - key: FIRECRAWL_API_KEY
+        sync: false
       - key: WHATSAPP_ENABLED
         value: false

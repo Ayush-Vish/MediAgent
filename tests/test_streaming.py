@@ -5,8 +5,9 @@ from uuid import uuid4
 import httpx
 import pytest
 
+from app.guardrails import OutputDecision
 from app.key_pool import KeyPool, PoolPolicy
-from app.streaming import preview, stream_sink
+from app.streaming import stream_sink
 
 
 def frames(response):
@@ -55,8 +56,7 @@ def test_stream_delivers_drafts_and_persists_only_final_answer(client, app, monk
     assert {'stage': 'knowledge', 'text': 'Searching approved medical sources…'} in statuses
     assert {'stage': 'answer', 'text': 'Assembling your answer…'} in statuses
     drafts = [data['text'] for name, data in events if name == 'draft' and data['text']]
-    assert drafts[0] == 'Appointments are booked'
-    assert 'portal' in drafts[-1]
+    assert drafts == ['Appointments are booked through the patient portal [S1].']
     assert events[-1][0] == 'done'
     assert events[-1][1]['sources']
     assert calls[0]['json']['stream'] is True
@@ -98,6 +98,29 @@ def test_neutral_dosage_fact_is_not_replaced_by_generic_fallback(client, app, mo
     assert 'For this specific symptom or condition' not in final['text']
 
 
+def test_only_guardrail_approved_replacement_is_streamed(client, app, monkeypatch):
+    configure_provider(app)
+    mock_transport(monkeypatch)
+    replacement = 'Please consult a qualified clinician for personal treatment guidance.'
+    monkeypatch.setattr(
+        app.state.service.graph.guardrails,
+        'inspect_output',
+        lambda query, answer, category, sources=None, severity='general': OutputDecision(
+            allowed=False, reason='personalized treatment', replacement=replacement,
+            safe_source_ids=list(range(len(sources or []))),
+        ),
+    )
+
+    response = client.post('/api/chat/stream', json={
+        'message': 'How can I book an appointment?', 'request_id': str(uuid4())})
+    events = frames(response)
+    drafts = [data['text'] for name, data in events if name == 'draft']
+
+    assert drafts == [replacement]
+    assert events[-1][0] == 'done'
+    assert events[-1][1]['text'] == replacement
+
+
 def test_interrupted_provider_stream_reports_error_without_saving(client, app, monkeypatch):
     configure_provider(app)
     mock_transport(monkeypatch, complete=False)
@@ -133,21 +156,15 @@ def test_stream_key_rotation_preserves_reservation_and_cooldown(monkeypatch, for
     assert len(calls) == 2
     assert pool.states[0].cooldown_until > pool.clock()
     assert all(state.in_flight == 0 for state in pool.states)
-    assert updates[-1]['text'] == 'Safe educational answer.'
+    assert updates == []
 
 
-def test_preview_does_not_expose_reasoning_or_disallowed_advice():
-    assert preview('<think>private reasoning') == ''
-    assert preview('<think>private reasoning</think>General education answer.') == 'General education answer.'
-    assert preview('You should take 100 mg immediately.') == ''
-
-
-def test_draft_is_emitted_before_upstream_finishes(monkeypatch):
+def test_provider_stream_is_buffered_until_the_output_guardrail(monkeypatch):
     updates = []
     class Chunks(httpx.SyncByteStream):
         def __iter__(self):
             yield b'data: {"choices":[{"delta":{"content":"Educational answer starts "},"finish_reason":null}]}\n\n'
-            assert updates[-1]['text'] == 'Educational answer starts'
+            assert updates == []
             yield b'data: {"choices":[{"delta":{"content":"here."},"finish_reason":"stop"}]}\n\n'
     @contextmanager
     def stream(method, url, **kwargs):
