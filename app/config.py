@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     qdrant_collection: str = 'mediagent'
     hybrid_enabled: bool = False
     rerank_enabled: bool = False
+    reranker_model: str = 'Xenova/ms-marco-MiniLM-L-6-v2'
     # Qdrant fusion always returns the nearest candidates, even when every
     # candidate is unrelated. Re-embed the small fused candidate set and reject
     # passages below this cosine-similarity floor before they can become RAG

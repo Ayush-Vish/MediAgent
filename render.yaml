@@ -27,6 +27,8 @@ services:
         generateValue: true
       - key: HYBRID_ENABLED
         value: false
+      - key: RERANK_ENABLED
+        value: false
       - key: WEB_SEARCH_ENABLED
         value: true
       - key: WHATSAPP_ENABLED

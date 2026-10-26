@@ -4,7 +4,7 @@ This document provides a comprehensive end-to-end technical specification for th
 
 The architecture is divided into two decoupled, asynchronous pipelines:
 1. **Ingestion Pipeline**: Document extraction, hierarchical chunking, dual sparse/dense vectorization (`TF-IDF` + `BAAI/bge-small-en-v1.5`), metadata extraction, and multi-vector storage into **Qdrant**.
-2. **Retrieval + Generation Pipeline**: Orchestrated query routing, dual-vector query encoding, hybrid search (`Cosine Similarity + BM25`) with **Reciprocal Rank Fusion (RRF)**, **Adjacent Chunk Window Expansion**, cross-encoder reranking (`BAAI/bge-reranker-base`), and grounded **LLM Generation**.
+2. **Retrieval + Generation Pipeline**: Orchestrated query routing, dual-vector query encoding, hybrid search (`Cosine Similarity + BM25`) with **Reciprocal Rank Fusion (RRF)**, **Adjacent Chunk Window Expansion**, memory-bounded cross-encoder reranking (`Xenova/ms-marco-MiniLM-L-6-v2`), and grounded **LLM Generation**.
 
 ---
 
@@ -54,7 +54,7 @@ flowchart TD
         
         ADJ --> ADJ_CHUNKS["(Top k × 2) & Adjacent Chunks\n+ JSON Metadata"]
         
-        ADJ_CHUNKS --> RERANK["FastAPI Reranker Service\n(BAAI/bge-reranker-base Cross-Encoder)"]
+        ADJ_CHUNKS --> RERANK["FastAPI Reranker Service\n(MiniLM-L-6 Cross-Encoder)"]
         
         RERANK --> TOP_K["(Top k) Refined Chunks\n+ JSON Metadata"]
         TOP_K --> TOOL
@@ -166,7 +166,7 @@ User Query ──> Orchestrator ──> Tool Plugin ──┬──> TF-IDF ─�
                                                                                                   │
                                                                                 (Top k × 2) & Adjacent Chunks
                                                                                                   │
-                                                                                   FastAPI Reranker (bge-reranker)
+                                                                                   FastAPI Reranker (MiniLM-L-6)
                                                                                                   │
 User <── Orchestrator <── LLM (Generation) <── Tool Plugin <──────────────────── (Top k) Chunks + Metadata
 ```
@@ -207,10 +207,10 @@ Chunking often splits critical medical nuances, contraindications, or dosage tab
 3. Merge adjacent chunks with the candidate chunk to form a coherent, continuous multi-chunk text block.
 4. **Output**: **$(\text{Top } k \times 2) \text{ \& Adjacent Chunks}$**.
 
-### 3.5 Cross-Encoder Reranking (`BAAI/bge-reranker-base`)
+### 3.5 Cross-Encoder Reranking (`Xenova/ms-marco-MiniLM-L-6-v2`)
 Bi-encoders (`bge-small-en-v1.5`) compress entire texts into single vectors, which can lose subtle cross-attention details. The reranker stage applies full cross-attention:
 
-- **Service**: Dedicated FastAPI Python microservice running `BAAI/bge-reranker-base`.
+- **Service**: FastEmbed cross-encoder using `Xenova/ms-marco-MiniLM-L-6-v2`.
 - **Input**: Query and Candidate Text pairs:
   $$\text{Input Pair} = (\text{Query}, \text{Expanded Chunk Text}_i)$$
 - **Mechanism**: Joint cross-attention across all tokens in the query and chunk simultaneously.
@@ -244,7 +244,7 @@ Bi-encoders (`bge-small-en-v1.5`) compress entire texts into single vectors, whi
 | **Retrieval** | Hybrid Search | Cosine Similarity + BM25 | Combines semantic meaning with exact keyword matches. |
 | **Fusion** | Score Aggregator | Reciprocal Rank Fusion (RRF, $k=60$) | Robust score fusion without calibrating dissimilar score distributions. |
 | **Expansion** | Context Stitcher | Point ID Lookup in Qdrant | Eliminates boundary truncation by pulling neighboring context. |
-| **Reranking** | Cross-Encoder | `BAAI/bge-reranker-base` | Deep query-document token interactions; removes false-positive retrievals. |
+| **Reranking** | Cross-Encoder | `Xenova/ms-marco-MiniLM-L-6-v2` | Deep query-document token interactions with a substantially smaller memory footprint. |
 | **Generation**| Orchestrator & LLM | LangGraph / OpenRouter / Llama | Synthesizes final grounded response with verifiable citations. |
 
 ---
@@ -336,12 +336,12 @@ def expand_adjacent_chunks(client: QdrantClient, candidate_chunks: list, collect
     return expanded_results
 ```
 
-### 5.4 Cross-Encoder Reranking (`bge-reranker-base`)
+### 5.4 Cross-Encoder Reranking (`MiniLM-L-6`)
 
 ```python
 from sentence_transformers import CrossEncoder
 
-reranker = CrossEncoder("BAAI/bge-reranker-base")
+reranker = CrossEncoder("Xenova/ms-marco-MiniLM-L-6-v2")
 
 def rerank(query: str, expanded_candidates: list, top_k: int = 4):
     """Scores (query, passage) pairs and returns the top_k most relevant candidates."""

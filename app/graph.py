@@ -138,9 +138,7 @@ class ChatGraph:
         if state.get('guard_decision') or state.get('is_greeting') or state.get('is_human_request'):
             return {'sources': [], 'mode': 'local'}
 
-        if self.settings.hybrid_enabled:
-            emit_status('qdrant', 'Searching Qdrant medical knowledge…')
-        else:
+        if not self.settings.hybrid_enabled:
             emit_status('knowledge', 'Searching approved medical sources…')
 
         search_query = state['query']

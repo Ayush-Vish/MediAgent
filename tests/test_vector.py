@@ -3,11 +3,30 @@
 This checks filtering, upserts and fusion, not embedding quality or cloud access.
 """
 from types import SimpleNamespace
+from concurrent.futures import ThreadPoolExecutor
+import time
 
 import numpy as np
 from qdrant_client import QdrantClient
 
 from app.vector import HybridIndex
+
+
+def test_hybrid_models_initialize_once_across_concurrent_requests(app, monkeypatch):
+    knowledge = app.state.knowledge
+    created = []
+
+    class FakeIndex:
+        def __init__(self, settings):
+            created.append(settings)
+            time.sleep(0.05)
+
+    monkeypatch.setattr('app.vector.HybridIndex', FakeIndex)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        indexes = list(pool.map(lambda _: knowledge.hybrid_index(), range(4)))
+
+    assert len(created) == 1
+    assert all(index is indexes[0] for index in indexes)
 
 
 class DenseFixture:

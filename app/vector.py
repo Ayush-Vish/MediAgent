@@ -1,10 +1,10 @@
-"""High-performance Hybrid RAG engine with BAAI/bge-small-en-v1.5, BM25, and BAAI/bge-reranker-base.
+"""Hybrid RAG with BGE-small, BM25, and a memory-bounded MiniLM reranker.
 
 Implements the two-phase pipeline from the architecture specification:
 1. Ingestion: Hierarchical extraction, chunking, dual dense (BGE) + sparse (BM25) vectorization,
    JSON metadata generation, and multi-vector Qdrant Point storage.
 2. Retrieval: Dual query encoding, Cosine + BM25 hybrid search with Reciprocal Rank Fusion (RRF),
-   adjacent chunk context window expansion, and BAAI/bge-reranker-base cross-encoder reranking.
+   adjacent chunk context window expansion, and MiniLM cross-encoder reranking.
 """
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ log = logging.getLogger(__name__)
 
 DENSE_MODEL = 'BAAI/bge-small-en-v1.5'
 SPARSE_MODEL = 'Qdrant/bm25'
-RERANKER_MODEL = 'BAAI/bge-reranker-base'
+DEFAULT_RERANKER_MODEL = 'Xenova/ms-marco-MiniLM-L-6-v2'
 DENSE_DIM = 384
 
 
@@ -57,9 +57,10 @@ class HybridIndex:
         if getattr(settings, 'rerank_enabled', True):
             try:
                 from fastembed.rerank.cross_encoder import TextCrossEncoder
-                self.reranker = TextCrossEncoder(RERANKER_MODEL, threads=1)
+                model = getattr(settings, 'reranker_model', DEFAULT_RERANKER_MODEL)
+                self.reranker = TextCrossEncoder(model, threads=1)
             except Exception as e:
-                log.warning('Failed to load cross-encoder reranker %s: %s', RERANKER_MODEL, e)
+                log.warning('Failed to load cross-encoder reranker: %s', type(e).__name__)
 
     def ensure_collection(self):
         if getattr(self, '_collection_ready', False):
@@ -244,7 +245,7 @@ class HybridIndex:
 
     @traced('vector.rerank')
     def rerank_passages(self, query: str, candidate_chunks: list[dict[str, Any]], top_k: int = 4) -> list[dict[str, Any]]:
-        """Rerank candidate passages with BAAI/bge-reranker-base cross-encoder."""
+        """Rerank candidate passages with the configured cross-encoder."""
         if not candidate_chunks or not self.reranker:
             event('vector.rerank.skipped', reason='empty_candidates' if not candidate_chunks else 'disabled')
             return candidate_chunks[:top_k]

@@ -22,7 +22,7 @@ For `/staff`, copy the generated `ADMIN_TOKEN` from your local `.env` into the s
 - Responsive patient chat, source links, a new-conversation/delete action and demo staff replies.
 - LangGraph routes hospital questions, health education, urgent warning phrases and unsupported requests.
 - Local BM25-style retrieval with query expansion and evidence excerpts; unknown, stale, unapproved and explicitly conflicting sources are excluded.
-- Optional Qdrant dense/BM25 fusion with CPU ONNX MiniLM embeddings and optional cross-encoder reranking.
+- Optional Qdrant dense/BM25 fusion with CPU ONNX BGE-small embeddings and an optional memory-bounded MiniLM cross-encoder reranker.
 - Web-search agent that complements local retrieval. An AI provider rewrites the question into a short search query, DDGS discovers pages from NHS, Mayo Clinic, and MedlinePlus, and MediAgent accepts content only from configured HTTPS medical domains. Web evidence is ephemeral, citation-validated, and labelled `limited`; it is never added to the approved corpus.
 - Optional provider Strategy (**Gemini, OpenRouter, OpenAI-compatible endpoints, or local**) for grounded answer drafting. The external model receives a redacted query, a bounded recent-message context, and approved source excerpts, never stored patient records. Citation IDs are validated and unsafe, uncited, invalid, failed, or quota-exhausted model responses fall back to local excerpts.
 - Source review and withdrawal; changed content returns to pending approval. Ingestion and Qdrant writes use stable IDs.

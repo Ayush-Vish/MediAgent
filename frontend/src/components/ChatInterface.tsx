@@ -591,7 +591,7 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
         )}
 
         {/* Animated Health Fact Box (No Spinner) */}
-        {loading && !messages.some((m) => m.role === "assistant" && m.text.length > 0) && (
+        {loading && (
           <div role="status" aria-live="polite" className="flex items-start gap-2.5 text-xs py-2.5 px-3.5 rounded-xl border border-border/40 bg-muted/20 max-w-lg transition-all duration-300">
             <Loader2 className="size-3.5 mt-0.5 shrink-0 text-foreground/80 animate-spin" />
             <div className="min-w-0">

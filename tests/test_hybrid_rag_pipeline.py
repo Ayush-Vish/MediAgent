@@ -3,7 +3,7 @@
 2. Qdrant Hybrid Storage: Multi-vector point persistence.
 3. Retrieval: Dual query encoding, Cosine + BM25 RRF fusion.
 4. Adjacent Chunk Expansion: Context window stitching.
-5. Cross-Encoder Reranking: BAAI/bge-reranker-base.
+5. Cross-Encoder Reranking: memory-bounded MiniLM-L-6.
 """
 import numpy as np
 from qdrant_client import QdrantClient
@@ -119,7 +119,7 @@ def test_hybrid_index_pipeline_end_to_end(settings):
     assert "expanded_text" in first_expanded
     assert "metadata" in first_expanded
 
-    # 4. Cross-Encoder Reranking (BAAI/bge-reranker-base)
+    # 4. Cross-Encoder Reranking (MiniLM-L-6)
     reranked = index.rerank_passages("What causes spinning vertigo?", expanded, top_k=2)
     assert len(reranked) > 0
     assert "rerank_score" in reranked[0]

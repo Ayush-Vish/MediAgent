@@ -123,7 +123,7 @@ export const chatApi = {
     await readSSE(response.body, ({ event, data }) => {
       if (event === "draft") onDraft(z.object({ text: z.string() }).parse(data).text);
       if (event === "status") onStatus(z.object({
-        stage: z.enum(["starting", "knowledge", "qdrant", "web", "answer"]),
+        stage: z.enum(["starting", "models", "knowledge", "qdrant", "web", "answer"]),
         text: z.string().min(1).max(120),
       }).parse(data).text);
       if (event === "done") answer = ChatAnswerSchema.parse(data);

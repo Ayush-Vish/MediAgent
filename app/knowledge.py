@@ -6,11 +6,13 @@ import math
 import re
 from collections import Counter
 from datetime import date
+from threading import Lock
 from uuid import NAMESPACE_URL, uuid5
 
 from app.config import ROOT
 from app.schemas import Citation, SourceInput
 from app.safety import INJECTION, normalize
+from app.streaming import emit_status
 
 log = logging.getLogger(__name__)
 STOP = set(
@@ -62,6 +64,17 @@ class Knowledge:
     def __init__(self, store, settings):
         self.store, self.settings = store, settings
         self._hybrid = None
+        self._hybrid_lock = Lock()
+
+    def hybrid_index(self):
+        """Initialize the shared embedding stack once per backend process."""
+        if self._hybrid is None:
+            with self._hybrid_lock:
+                if self._hybrid is None:
+                    emit_status('models', 'Loading retrieval models (first request may download them)…')
+                    from app.vector import HybridIndex
+                    self._hybrid = HybridIndex(self.settings)
+        return self._hybrid
 
     def seed(self):
         if self.settings.hospital_id != 'cmc-vellore':
@@ -153,10 +166,9 @@ class Knowledge:
         mode = 'lexical'
         if self.settings.hybrid_enabled:
             try:
-                if self._hybrid is None:
-                    from app.vector import HybridIndex
-                    self._hybrid = HybridIndex(self.settings)
-                ids = self._hybrid.search(query, category)
+                index = self.hybrid_index()
+                emit_status('qdrant', 'Searching Qdrant medical knowledge…')
+                ids = index.search(query, category)
                 # Database approval and freshness are authoritative, even for stale vectors.
                 approved = {s['id']: s for s in documents}
                 positions = {key: rank for rank, key in enumerate(ids)}

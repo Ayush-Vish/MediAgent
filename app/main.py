@@ -30,7 +30,6 @@ from app.service import ChatService
 from app.schemas import DoctorMessage, TimelineSummaryRequest
 from app.schemas import HistoryImport
 from app.store import Store
-from app.vector import HybridIndex
 
 log = logging.getLogger(__name__)
 
@@ -498,9 +497,7 @@ def create_app(settings=None):
         return {'ok': True}
 
     def get_hybrid_index():
-        if knowledge._hybrid is None:
-            knowledge._hybrid = HybridIndex(settings)
-        return knowledge._hybrid
+        return knowledge.hybrid_index()
 
     @app.post('/api/rag/embed')
     def rag_embed(body: EmbedRequest):
