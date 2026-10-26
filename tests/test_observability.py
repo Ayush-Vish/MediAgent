@@ -25,10 +25,15 @@ def test_cloud_console_content_flags(settings, monkeypatch, capsys, enabled):
         observability.user_query('Example patient query')
         observability.retrieved_chunks([{'title': 'Source title', 'url': 'https://example.com',
                                         'text': 'Retrieved passage'}])
+        observability.web_search_results('ear pain guidance', [
+            {'title': 'NHS earache', 'url': 'https://www.nhs.uk/symptoms/earache/'}
+        ])
         output = capsys.readouterr().err
         assert ('Example patient query' in output) is enabled
         assert ('Chunk 1: Source title' in output) is enabled
         assert ('Retrieved passage' in output) is enabled
+        assert ('Web search query: ear pain guidance' in output) is enabled
+        assert ('Web result 1: NHS earache' in output) is enabled
     finally:
         application.state.store.engine.dispose()
         observability.configure_logging(settings.log_file)

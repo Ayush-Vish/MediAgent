@@ -52,6 +52,11 @@ class PrettyHandler(logging.Handler):
             sys.stderr.write(f"{time_str}  [{req}]  {name}  {details}\n")
             if hasattr(record, 'query'):
                 sys.stderr.write('User query: ' + terminal_text(record.query) + '\n')
+            if hasattr(record, 'search_query'):
+                sys.stderr.write('Web search query: ' + terminal_text(record.search_query) + '\n')
+            for index, result in enumerate(getattr(record, 'web_results', []), 1):
+                sys.stderr.write(f'Web result {index}: ' + terminal_text(result.get('title', 'Untitled')) + '\n'
+                                 + terminal_text(result.get('url', '')) + '\n')
             for index, source in enumerate(getattr(record, 'chunks', []), 1):
                 sys.stderr.write(f'Chunk {index}: ' + terminal_text(source.get('title', 'Untitled')) + '\n'
                                  + terminal_text(source.get('url', '')) + '\n'
@@ -70,6 +75,13 @@ class PrettyHandler(logging.Handler):
         renderables = [line]
         if hasattr(record, 'query'):
             renderables.append(Panel(Text(terminal_text(record.query)), title='User query', border_style='magenta'))
+        if hasattr(record, 'search_query'):
+            renderables.append(Panel(Text(terminal_text(record.search_query)), title='Web search query',
+                                     border_style='magenta'))
+        for index, result in enumerate(getattr(record, 'web_results', []), 1):
+            body = Text(terminal_text(result.get('title', 'Untitled')), style='bold cyan')
+            body.append('\n' + terminal_text(result.get('url', '')), style='dim')
+            renderables.append(Panel(body, title=f'Web result {index}', border_style='cyan'))
         for index, source in enumerate(getattr(record, 'chunks', []), 1):
             body = Text(terminal_text(source.get('title', 'Untitled')), style='bold cyan')
             body.append('\n' + terminal_text(source.get('url', '')), style='dim')
@@ -125,6 +137,25 @@ def user_query(message):
             'event_data': {'event': 'chat.query', 'request_id': request_id.get()},
             'query': message,
         })
+
+
+def web_search_results(query, sources):
+    """Log accepted public result metadata without persisting page contents."""
+    extra = {
+        'event_data': {
+            'event': 'web_search.results',
+            'request_id': request_id.get(),
+            'count': len(sources),
+        },
+    }
+    if _show_query:
+        extra['search_query'] = query
+    if _show_chunks:
+        extra['web_results'] = [
+            {'title': source.get('title', 'Untitled'), 'url': source.get('url', '')}
+            for source in sources
+        ]
+    logger.info('web_search.results', extra=extra)
 
 
 @contextmanager

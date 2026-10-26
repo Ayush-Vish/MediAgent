@@ -192,7 +192,7 @@ class ChatGraph:
                 seen.add(source['url'])
                 sources.append(source)
         query_mode = 'llm-query' if rewritten and sanitize_search_query(rewritten) else 'safe-query-fallback'
-        event('web_search.results', category=category, count=len(web_sources), query_mode=query_mode)
+        event('web_search.merge', category=category, count=len(web_sources), query_mode=query_mode)
         local_mode = state.get('mode', 'lexical')
         return {'sources': sources, 'mode': f'{local_mode} + web ({query_mode})'}
 

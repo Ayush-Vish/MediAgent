@@ -11,6 +11,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from app.safety import INJECTION, normalize
+from app.observability import web_search_results
 
 log = logging.getLogger(__name__)
 
@@ -82,6 +83,7 @@ class WebSearchAgent:
             except Exception as error:
                 log.info('Web search domain skipped: domain=%s error=%s', domain, type(error).__name__)
         if not results:
+            web_search_results(query, [])
             return []
 
         sources, seen = [], set()
@@ -116,6 +118,7 @@ class WebSearchAgent:
                     break
         except Exception as error:
             log.warning('Web search result stream unavailable: %s', type(error).__name__)
+        web_search_results(query, sources)
         return sources
 
     def _ddgs_search(self, query: str, max_results: int):

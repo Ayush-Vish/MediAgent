@@ -132,6 +132,7 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [processingStatus, setProcessingStatus] = useState<string>("");
+  const [isDraftStreaming, setIsDraftStreaming] = useState<boolean>(false);
   const [currentFact, setCurrentFact] = useState<typeof HEALTH_FACTS[0] | null>(
     () => HEALTH_FACTS[Math.floor(Math.random() * HEALTH_FACTS.length)]
   );
@@ -259,6 +260,7 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
     lastFactIndexRef.current = initial.index;
     setCurrentFact(initial.fact);
     setProcessingStatus("Starting medical search…");
+    setIsDraftStreaming(false);
     setLoading(true);
 
     const draftMessage = createMessage("assistant", "");
@@ -277,6 +279,7 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
         pendingRef.current!.requestId,
         (text) => {
           targetText = text;
+          if (text.trim()) setIsDraftStreaming(true);
         },
         (text) => {
           setProcessingStatus(text);
@@ -326,6 +329,7 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
       busyRef.current = false;
       setLoading(false);
       setProcessingStatus("");
+      setIsDraftStreaming(false);
       textareaRef.current?.focus();
     }
   };
@@ -591,7 +595,7 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
         )}
 
         {/* Animated Health Fact Box (No Spinner) */}
-        {loading && (
+        {loading && !isDraftStreaming && (
           <div role="status" aria-live="polite" className="flex items-start gap-2.5 text-xs py-2.5 px-3.5 rounded-xl border border-border/40 bg-muted/20 max-w-lg transition-all duration-300">
             <Loader2 className="size-3.5 mt-0.5 shrink-0 text-foreground/80 animate-spin" />
             <div className="min-w-0">
