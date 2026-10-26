@@ -23,7 +23,7 @@ For `/staff`, copy the generated `ADMIN_TOKEN` from your local `.env` into the s
 - LangGraph routes hospital questions, health education, urgent warning phrases and unsupported requests.
 - Local BM25-style retrieval with query expansion and evidence excerpts; unknown, stale, unapproved and explicitly conflicting sources are excluded.
 - Optional Qdrant dense/BM25 fusion with CPU ONNX MiniLM embeddings and optional cross-encoder reranking.
-- Optional web-search agent after a local retrieval miss. An AI provider rewrites the question into a short search query, DuckDuckGo discovers pages, and MediAgent accepts content only from configured HTTPS medical domains. Web evidence is ephemeral, citation-validated, and labelled `limited`; it is never added to the approved corpus.
+- Web-search agent that complements local retrieval. An AI provider rewrites the question into a short search query, DDGS discovers pages from NHS, Mayo Clinic, and MedlinePlus, and MediAgent accepts content only from configured HTTPS medical domains. Web evidence is ephemeral, citation-validated, and labelled `limited`; it is never added to the approved corpus.
 - Optional provider Strategy (**Gemini, OpenRouter, OpenAI-compatible endpoints, or local**) for grounded answer drafting. The external model receives a redacted query, a bounded recent-message context, and approved source excerpts, never stored patient records. Citation IDs are validated and unsafe, uncited, invalid, failed, or quota-exhausted model responses fall back to local excerpts.
 - Source review and withdrawal; changed content returns to pending approval. Ingestion and Qdrant writes use stable IDs.
 - Durable sanitized turn snapshots and topic continuity across restarts. Raw graph input is kept in memory only, and external LangSmith tracing is disabled. This is turn-level persistence, not mid-node LangGraph replay.
@@ -308,13 +308,14 @@ Stop the API before reindexing: local Qdrant permits only one process per storag
 directory. The index persists across restarts; use one API worker. A remote
 Qdrant server remains the option for concurrent processes or cloud hosting.
 
-Web search is disabled by default. To enable the fallback, configure an AI
-provider and set `WEB_SEARCH_ENABLED=true`. The default health allowlist is
-`nhs.uk,medlineplus.gov,cdc.gov,who.int`; change
+Web search is enabled by default and runs alongside local retrieval. Configure an
+AI provider for LLM query rewriting; a sanitized original query is used if the
+provider is unavailable. The default health allowlist is
+`nhs.uk,mayoclinic.org,medlineplus.gov`; change
 `WEB_SEARCH_TRUSTED_DOMAINS` to a comma-separated list if your review policy
 requires a different set. Hospital queries are restricted to the hostname in
 `HOSPITAL_PORTAL_URL` (or the bundled CMC portal). If rewriting or search fails,
-the normal local abstention/general-health fallback remains in place.
+local retrieval and the normal abstention/general-health behavior remain available.
 
 Groq uses its [OpenAI-compatible API](https://console.groq.com/docs/openai).
 Add `GROQ_API_KEYS=key1,key2` (or `GROQ_API_KEY` for one key) and

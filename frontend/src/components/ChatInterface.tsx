@@ -131,6 +131,7 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
   const [loading, setLoading] = useState<boolean>(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>("");
+  const [processingStatus, setProcessingStatus] = useState<string>("");
   const [currentFact, setCurrentFact] = useState<typeof HEALTH_FACTS[0] | null>(
     () => HEALTH_FACTS[Math.floor(Math.random() * HEALTH_FACTS.length)]
   );
@@ -257,6 +258,7 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
     const initial = getRandomHealthFact(lastFactIndexRef.current);
     lastFactIndexRef.current = initial.index;
     setCurrentFact(initial.fact);
+    setProcessingStatus("Starting medical search…");
     setLoading(true);
 
     const draftMessage = createMessage("assistant", "");
@@ -275,6 +277,9 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
         pendingRef.current!.requestId,
         (text) => {
           targetText = text;
+        },
+        (text) => {
+          setProcessingStatus(text);
         },
         controller.signal
       )
@@ -320,6 +325,7 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
       streamRef.current = null;
       busyRef.current = false;
       setLoading(false);
+      setProcessingStatus("");
       textareaRef.current?.focus();
     }
   };
@@ -586,22 +592,24 @@ export function ChatInterface({ user, onOpenAuth, hospitalName }: ChatInterfaceP
 
         {/* Animated Health Fact Box (No Spinner) */}
         {loading && !messages.some((m) => m.role === "assistant" && m.text.length > 0) && (
-          <div className="flex items-start gap-2.5 text-xs py-2 px-3.5 rounded-xl border border-border/40 bg-muted/20 max-w-lg transition-all duration-300">
-            <Sparkles className="size-3.5 mt-0.5 shrink-0 text-foreground/80 animate-pulse" />
-            <div
+          <div role="status" aria-live="polite" className="flex items-start gap-2.5 text-xs py-2.5 px-3.5 rounded-xl border border-border/40 bg-muted/20 max-w-lg transition-all duration-300">
+            <Loader2 className="size-3.5 mt-0.5 shrink-0 text-foreground/80 animate-spin" />
+            <div className="min-w-0">
+              <div className="font-semibold text-foreground">{processingStatus || "Preparing your answer…"}</div>
+              <div
               className={`leading-relaxed transition-all duration-200 ${
                 factFade ? "opacity-0 translate-y-1" : "opacity-100 translate-y-0"
               }`}
-            >
+              >
               {currentFact ? (
                 <>
-                  <span className="font-semibold text-foreground">Health Fact: </span>
-                  <span className="text-foreground/90 font-medium">{currentFact.fact}</span>
+                  <span className="text-muted-foreground">While you wait: {currentFact.fact}</span>
                   <span className="ml-1.5 text-[10px] text-muted-foreground/60 font-medium">({currentFact.source})</span>
                 </>
               ) : (
-                <span className="text-muted-foreground font-medium">Loading medical information…</span>
+                <span className="text-muted-foreground">Loading medical information…</span>
               )}
+              </div>
             </div>
           </div>
         )}

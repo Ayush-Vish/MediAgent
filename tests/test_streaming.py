@@ -50,6 +50,10 @@ def test_stream_delivers_drafts_and_persists_only_final_answer(client, app, monk
     assert response.headers['content-type'].startswith('text/event-stream')
     events = frames(response)
     assert events[0][0] == 'status'
+    statuses = [data for name, data in events if name == 'status']
+    assert statuses[0] == {'stage': 'starting', 'text': 'Starting medical search…'}
+    assert {'stage': 'knowledge', 'text': 'Searching approved medical sources…'} in statuses
+    assert {'stage': 'answer', 'text': 'Assembling your answer…'} in statuses
     drafts = [data['text'] for name, data in events if name == 'draft' and data['text']]
     assert drafts[0] == 'Appointments are booked'
     assert 'portal' in drafts[-1]

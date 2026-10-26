@@ -1,4 +1,4 @@
-"""Constrained web retrieval for the LangGraph fallback search agent."""
+"""Constrained web retrieval for the LangGraph web search agent."""
 from __future__ import annotations
 
 import hashlib

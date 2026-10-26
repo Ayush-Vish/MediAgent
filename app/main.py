@@ -304,7 +304,7 @@ def create_app(settings=None):
             task.add_done_callback(app.state.stream_tasks.discard)
             # Finish/persist in the worker even after disconnection, allowing an
             # idempotent retry to recover the completed answer without another call.
-            yield 'event: status\ndata: {"text":"Finding sources and preparing your answer…"}\n\n'
+            yield 'event: status\ndata: {"stage":"starting","text":"Starting medical search…"}\n\n'
             while True:
                 try:
                     name, data = await asyncio.wait_for(queue.get(), timeout=10)

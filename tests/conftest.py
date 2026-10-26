@@ -8,7 +8,7 @@ from app.main import create_app
 @pytest.fixture
 def settings(tmp_path):
     return Settings(_env_file=None, environment='local', database_url=f'sqlite:///{tmp_path / "test.db"}',
-                    admin_token='test-staff-token', source_max_age_days=10000)
+                    admin_token='test-staff-token', source_max_age_days=10000, web_search_enabled=False)
 
 
 @pytest.fixture

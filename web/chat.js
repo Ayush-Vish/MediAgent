@@ -1,4 +1,4 @@
-import {api, element, safeLink} from './api.js';
+import {api, element, safeLink, streamChat} from './api.js';
 
 const form = document.querySelector('#chat-form');
 const input = document.querySelector('#message');
@@ -361,7 +361,7 @@ async function submit(message) {
   status('Checking hospital information…');
   scrollToLatest();
   try {
-    const answer = await api('/api/chat', {method: 'POST', body: pending});
+    const answer = await streamChat(pending, {onStatus: message => status(message)});
     if (typeof answer.text !== 'string' || !Array.isArray(answer.sources)) throw new Error('Invalid answer received.');
     renderMessage('assistant', answer.text, answer);
     pending = null;

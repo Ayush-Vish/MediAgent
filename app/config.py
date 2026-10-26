@@ -54,14 +54,14 @@ class Settings(BaseSettings):
     # evidence. BGE-small scores observed for relevant bundled sources are
     # generally >= 0.63, while unrelated medical neighbours are around 0.45-0.56.
     hybrid_min_dense_score: float = Field(default=0.60, ge=0.0, le=1.0)
-    # Web retrieval is an explicit fallback after approved local retrieval.
+    # Web retrieval complements approved local retrieval.
     # Results are restricted to these domains and are never persisted as
     # approved hospital knowledge.
-    web_search_enabled: bool = False
-    web_search_backend: str = 'duckduckgo'
+    web_search_enabled: bool = True
+    web_search_backend: str = 'auto'
     web_search_max_results: int = Field(default=3, ge=1, le=5)
     web_search_timeout_seconds: float = Field(default=8.0, ge=1.0, le=20.0)
-    web_search_trusted_domains: str = 'nhs.uk,medlineplus.gov,cdc.gov,who.int'
+    web_search_trusted_domains: str = 'nhs.uk,mayoclinic.org,medlineplus.gov'
     telegram_bot_token: str = ''
     telegram_webhook_secret: str = ''
     channel_hash_secret: str = ''
@@ -110,8 +110,8 @@ class Settings(BaseSettings):
             raise ValueError('WhatsApp configuration is incomplete')
         if self.hybrid_enabled and not (self.qdrant_url or self.qdrant_path):
             raise ValueError('Hybrid retrieval requires QDRANT_URL or QDRANT_PATH')
-        if self.web_search_backend.strip().lower() != 'duckduckgo':
-            raise ValueError('WEB_SEARCH_BACKEND must be duckduckgo')
+        if self.web_search_backend.strip().lower() not in {'auto', 'duckduckgo'}:
+            raise ValueError('WEB_SEARCH_BACKEND must be auto or duckduckgo')
         if self.web_search_enabled and not self.web_search_trusted_domains.strip() and not self.portal_url:
             raise ValueError('Web search requires trusted domains or a hospital portal URL')
         if not 1 <= self.retention_hours <= 168:

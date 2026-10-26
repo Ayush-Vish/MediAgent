@@ -102,7 +102,13 @@ export const authApi = {
 
 // ----------------- Chat & Session API -----------------
 export const chatApi = {
-  async streamMessage(message: string, requestId: string, onDraft: (text: string) => void, signal?: AbortSignal): Promise<ChatAnswer> {
+  async streamMessage(
+    message: string,
+    requestId: string,
+    onDraft: (text: string) => void,
+    onStatus: (text: string) => void,
+    signal?: AbortSignal
+  ): Promise<ChatAnswer> {
     const owner = sessionUserId;
     const response = await fetch(`${BASE_URL}/api/chat/stream`, {
       method: "POST", headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
@@ -116,6 +122,10 @@ export const chatApi = {
     let answer: ChatAnswer | undefined;
     await readSSE(response.body, ({ event, data }) => {
       if (event === "draft") onDraft(z.object({ text: z.string() }).parse(data).text);
+      if (event === "status") onStatus(z.object({
+        stage: z.enum(["starting", "knowledge", "qdrant", "web", "answer"]),
+        text: z.string().min(1).max(120),
+      }).parse(data).text);
       if (event === "done") answer = ChatAnswerSchema.parse(data);
       if (event === "error") throw new Error(z.object({ error: z.string() }).parse(data).error);
     });

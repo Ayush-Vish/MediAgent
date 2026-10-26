@@ -39,20 +39,21 @@ def test_graph_uses_rewritten_query_only_after_local_miss(client, app, settings,
 
     assert fake.calls == [('ear pain causes warning signs', 'health')]
     assert answer['evidence'] == 'limited'
-    assert answer['mode'] == 'web (llm-query)'
+    assert answer['mode'] == 'lexical + web (llm-query)'
     assert answer['sources'][0]['url'] == 'https://www.nhs.uk/conditions/earache/'
     assert '[S1]' in answer['text']
 
 
-def test_graph_does_not_search_when_local_evidence_exists(client, app, settings):
+def test_graph_combines_web_with_local_evidence(client, app, settings):
     fake = FakeWebSearch()
     app.state.service.graph.web_search_agent = fake
     settings.web_search_enabled = True
 
     answer = _ask(client, 'What is general cough education?').json()
 
-    assert answer['evidence'] == 'supported'
-    assert fake.calls == []
+    assert answer['evidence'] == 'limited'
+    assert fake.calls == [('What is general cough education', 'health')]
+    assert any(source['url'] == 'https://www.nhs.uk/conditions/earache/' for source in answer['sources'])
 
 
 def test_search_rejects_untrusted_domains_and_injected_pages():
@@ -69,6 +70,7 @@ def test_search_rejects_untrusted_domains_and_injected_pages():
         return 'Trusted medical page', 'General medical information written for patients. ' * 4, url
 
     agent = WebSearchAgent(settings, search_fn=lambda query, limit: results, fetch_fn=fetch)
+    assert agent.allowed_domains('health') == {'nhs.uk', 'mayoclinic.org', 'medlineplus.gov'}
     sources = agent.search('ear pain causes', 'health')
 
     assert [source['url'] for source in sources] == ['https://medlineplus.gov/ear.html']

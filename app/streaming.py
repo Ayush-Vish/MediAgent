@@ -8,6 +8,13 @@ import httpx
 stream_sink = ContextVar('stream_sink', default=None)
 
 
+def emit_status(stage: str, text: str) -> None:
+    """Publish a small, non-sensitive pipeline progress event when streaming."""
+    sink = stream_sink.get()
+    if sink:
+        sink('status', {'stage': stage, 'text': text})
+
+
 def preview(raw):
     from app.providers import clean_llm_output
     from app.safety import reply_allowed

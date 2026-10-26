@@ -14,6 +14,7 @@ from app.providers import configured_provider
 from app.llm_pool import LLMUnavailable
 from app.key_pool import PoolUnavailable
 from app.web_search import WebSearchAgent, sanitize_search_query
+from app.streaming import emit_status
 
 log = logging.getLogger(__name__)
 
@@ -137,6 +138,11 @@ class ChatGraph:
         if state.get('guard_decision') or state.get('is_greeting') or state.get('is_human_request'):
             return {'sources': [], 'mode': 'local'}
 
+        if self.settings.hybrid_enabled:
+            emit_status('qdrant', 'Searching Qdrant medical knowledge…')
+        else:
+            emit_status('knowledge', 'Searching approved medical sources…')
+
         search_query = state['query']
         context = state.get('context', [])
         previous_user_msg = next((m['text'] for m in reversed(context) if m.get('role') == 'user'), None)
@@ -159,8 +165,8 @@ class ChatGraph:
 
     @traced('web_search')
     def web_search(self, state):
-        """Use an LLM-written query only when approved local retrieval is empty."""
-        if (not self.settings.web_search_enabled or state.get('sources') or
+        """Add allowlisted web evidence alongside approved local evidence."""
+        if (not self.settings.web_search_enabled or
                 state.get('guard_decision') or state.get('is_greeting') or state.get('is_human_request')):
             return {}
 
@@ -174,16 +180,23 @@ class ChatGraph:
         if category == 'health' and not state.get('topic') and not HEALTH.search(normalize(query)) and not has_health_context:
             return {}
 
+        emit_status('web', 'Searching trusted medical websites…')
         rewritten = self.rewrite_search_query(query, category, context)
         search_query = sanitize_search_query(rewritten) or sanitize_search_query(query)
         if not search_query:
             return {}
-        sources = self.web_search_agent.search(search_query, category)
-        if not sources:
+        web_sources = self.web_search_agent.search(search_query, category)
+        if not web_sources:
             return {}
+        sources, seen = [], set()
+        for source in [*state.get('sources', []), *web_sources]:
+            if source['url'] not in seen:
+                seen.add(source['url'])
+                sources.append(source)
         query_mode = 'llm-query' if rewritten and sanitize_search_query(rewritten) else 'safe-query-fallback'
-        event('web_search.results', category=category, count=len(sources), query_mode=query_mode)
-        return {'sources': sources, 'mode': f'web ({query_mode})'}
+        event('web_search.results', category=category, count=len(web_sources), query_mode=query_mode)
+        local_mode = state.get('mode', 'lexical')
+        return {'sources': sources, 'mode': f'{local_mode} + web ({query_mode})'}
 
     @traced('llm.search_query')
     def rewrite_search_query(self, query, category, context=None):
@@ -222,6 +235,7 @@ class ChatGraph:
 
     @traced('answer')
     def respond(self, state):
+        emit_status('answer', 'Assembling your answer…')
         query = state['query']
         guard_decision = state.get('guard_decision')
         severity = state.get('severity')
