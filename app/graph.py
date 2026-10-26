@@ -134,6 +134,12 @@ class ChatGraph:
         previous_user_msg = next((m['text'] for m in reversed(context) if m.get('role') == 'user'), None)
         if previous_user_msg and len(search_query.split()) < 7:
             search_query = f"{previous_user_msg} {search_query}"
+        elif len(search_query.split()) < 7 and state.get('topic') in TOPICS:
+            # Anonymous raw messages intentionally live only in process memory,
+            # so a restart can leave us with a durable topic but no prior text.
+            # Expand short follow-ups from that public topic rather than
+            # searching literal phrases such as "tell me more".
+            search_query = f"{TOPICS[state['topic']][1]} {search_query}"
 
         sources, mode = self.knowledge.search(search_query, state['category'])
         seen, unique = set(), []

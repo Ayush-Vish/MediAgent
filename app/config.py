@@ -48,6 +48,12 @@ class Settings(BaseSettings):
     qdrant_collection: str = 'mediagent'
     hybrid_enabled: bool = False
     rerank_enabled: bool = False
+    # Qdrant fusion always returns the nearest candidates, even when every
+    # candidate is unrelated. Re-embed the small fused candidate set and reject
+    # passages below this cosine-similarity floor before they can become RAG
+    # evidence. BGE-small scores observed for relevant bundled sources are
+    # generally >= 0.63, while unrelated medical neighbours are around 0.45-0.56.
+    hybrid_min_dense_score: float = Field(default=0.60, ge=0.0, le=1.0)
     telegram_bot_token: str = ''
     telegram_webhook_secret: str = ''
     channel_hash_secret: str = ''

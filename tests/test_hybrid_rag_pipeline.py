@@ -5,10 +5,39 @@
 4. Adjacent Chunk Expansion: Context window stitching.
 5. Cross-Encoder Reranking: BAAI/bge-reranker-base.
 """
+import numpy as np
 from qdrant_client import QdrantClient
 
 from app.chunker import chunk_document, extract_sections
 from app.vector import HybridIndex
+
+
+class RelevanceFixture:
+    def query_embed(self, query):
+        yield np.array([1.0, 0.0])
+
+    def embed(self, passages, **kwargs):
+        for passage in passages:
+            if 'eardrum' in passage.lower():
+                yield np.array([0.9, 0.1])
+            else:
+                yield np.array([0.2, 0.8])
+
+
+def test_dense_relevance_gate_rejects_nearest_but_unrelated_candidates(settings):
+    index = HybridIndex.__new__(HybridIndex)
+    index.settings = settings.model_copy(update={'hybrid_min_dense_score': 0.60})
+    index.dense = RelevanceFixture()
+    candidates = [
+        {'expanded_text': 'General headache education', 'source_id': 'headache'},
+        {'expanded_text': 'A perforated eardrum is a hole or tear in the eardrum', 'source_id': 'ear'},
+        {'expanded_text': 'Ibuprofen medicine information', 'source_id': 'ibuprofen'},
+    ]
+
+    relevant = index.filter_relevant_passages('I have a hole in my eardrum', candidates)
+
+    assert [item['source_id'] for item in relevant] == ['ear']
+    assert relevant[0]['dense_relevance_score'] >= 0.60
 
 
 def test_chunk_document_adjacency_and_metadata():

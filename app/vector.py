@@ -9,6 +9,7 @@ Implements the two-phase pipeline from the architecture specification:
 from __future__ import annotations
 
 import logging
+import math
 from urllib.parse import urlsplit
 from app.observability import traced, span, event
 from dataclasses import asdict
@@ -257,6 +258,49 @@ class HybridIndex:
         candidate_chunks.sort(key=lambda c: c['rerank_score'], reverse=True)
         return candidate_chunks[:top_k]
 
+    @traced('vector.relevance_gate')
+    def filter_relevant_passages(
+        self,
+        query: str,
+        candidate_chunks: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Reject the nearest candidates when none are actually relevant.
+
+        RRF scores describe rank agreement, not absolute semantic relevance. A
+        Qdrant query therefore still returns results for an out-of-corpus query.
+        We only re-embed the small, already-fused candidate set and apply an
+        absolute cosine floor before optional cross-encoder reranking.
+        """
+        if not candidate_chunks:
+            return []
+
+        query_vector = next(self.dense.query_embed(query))
+        passages = [chunk['expanded_text'] for chunk in candidate_chunks]
+        passage_vectors = list(self.dense.embed(passages, batch_size=8))
+        if len(passage_vectors) != len(candidate_chunks):
+            raise ValueError('Embedding count does not match candidate count')
+
+        query_norm = math.sqrt(float(query_vector @ query_vector))
+        threshold = self.settings.hybrid_min_dense_score
+        relevant = []
+        for chunk, vector in zip(candidate_chunks, passage_vectors):
+            vector_norm = math.sqrt(float(vector @ vector))
+            score = 0.0 if query_norm == 0.0 or vector_norm == 0.0 else float(
+                (query_vector @ vector) / (query_norm * vector_norm)
+            )
+            chunk['dense_relevance_score'] = score
+            if score >= threshold:
+                relevant.append(chunk)
+
+        event(
+            'vector.relevance_gate',
+            candidates=len(candidate_chunks),
+            accepted=len(relevant),
+            threshold=threshold,
+        )
+        relevant.sort(key=lambda chunk: chunk['dense_relevance_score'], reverse=True)
+        return relevant
+
     @traced('vector.pipeline')
     def search_hybrid_pipeline(self, query: str, category: str, top_k: int = 4) -> list[dict[str, Any]]:
         """End-to-end retrieval: Hybrid Search -> (Top k * 2) -> Adjacent Expansion -> Cross-Encoder Rerank -> Top k."""
@@ -265,7 +309,10 @@ class HybridIndex:
             return []
 
         expanded = self.expand_adjacent_chunks(candidates)
-        refined = self.rerank_passages(query, expanded, top_k=top_k)
+        relevant = self.filter_relevant_passages(query, expanded)
+        if not relevant:
+            return []
+        refined = self.rerank_passages(query, relevant, top_k=top_k)
         return refined
 
     def search(self, query, category):
