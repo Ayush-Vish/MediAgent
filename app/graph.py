@@ -13,6 +13,7 @@ from app.schemas import Answer, SeverityInfo
 from app.providers import configured_provider
 from app.llm_pool import LLMUnavailable
 from app.key_pool import PoolUnavailable
+from app.web_search import WebSearchAgent, sanitize_search_query
 
 log = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ class ChatState(TypedDict, total=False):
     is_human_request: bool
 
 
-def _format_local_response(query: str, citations: list, hospital_name: str) -> str:
+def _format_local_response(query: str, citations: list, hospital_name: str, web: bool = False) -> str:
     is_hinglish = bool(re.search(r'\b(hinglish|hindi|samjhao|batao|karein|chahiye)\b', normalize(query)))
     items = []
     for c in citations:
@@ -44,6 +45,10 @@ def _format_local_response(query: str, citations: list, hospital_name: str) -> s
         items.append(f"• **{c.title}**: {body} [{c.id}]")
 
     joined_items = '\n\n'.join(items)
+    if web:
+        if is_hinglish:
+            return f"Trusted public medical sources se mili jaankari:\n\n{joined_items}"
+        return f"Based on trusted public medical sources, here is the key information:\n\n{joined_items}"
     if is_hinglish:
         return (
             f"Yahan {hospital_name} ki official guidelines ke anusar zaroori jaankari di gayi hai:\n\n"
@@ -56,19 +61,22 @@ def _format_local_response(query: str, citations: list, hospital_name: str) -> s
 
 
 class ChatGraph:
-    def __init__(self, knowledge, store, settings):
+    def __init__(self, knowledge, store, settings, web_search_agent=None):
         self.knowledge, self.store, self.settings = knowledge, store, settings
         self.provider, self.provider_config = configured_provider(settings)
+        self.web_search_agent = web_search_agent or WebSearchAgent(settings)
         builder = StateGraph(ChatState)
         builder.add_node('route', self.route)
         builder.add_node('retrieve', self.retrieve)
+        builder.add_node('web_search', self.web_search)
         builder.add_node('respond', self.respond)
         
-        # Purely sequential flow through the graph: START -> route -> retrieve -> respond -> END
+        # Local approved evidence is always attempted before the optional web fallback.
         # No immediate answer short-circuiting out of route
         builder.add_edge(START, 'route')
         builder.add_edge('route', 'retrieve')
-        builder.add_edge('retrieve', 'respond')
+        builder.add_edge('retrieve', 'web_search')
+        builder.add_edge('web_search', 'respond')
         builder.add_edge('respond', END)
         self.graph = builder.compile()
 
@@ -148,6 +156,51 @@ class ChatGraph:
                 seen.add(source['url'])
                 unique.append(source)
         return {'sources': unique[:2], 'mode': mode}
+
+    @traced('web_search')
+    def web_search(self, state):
+        """Use an LLM-written query only when approved local retrieval is empty."""
+        if (not self.settings.web_search_enabled or state.get('sources') or
+                state.get('guard_decision') or state.get('is_greeting') or state.get('is_human_request')):
+            return {}
+
+        category = state.get('category', 'health')
+        query = state['query']
+        context = state.get('context', [])
+        has_health_context = any(
+            bool(HEALTH.search(normalize(message.get('text', ''))))
+            for message in context if message.get('role') == 'user'
+        )
+        if category == 'health' and not state.get('topic') and not HEALTH.search(normalize(query)) and not has_health_context:
+            return {}
+
+        rewritten = self.rewrite_search_query(query, category, context)
+        search_query = sanitize_search_query(rewritten) or sanitize_search_query(query)
+        if not search_query:
+            return {}
+        sources = self.web_search_agent.search(search_query, category)
+        if not sources:
+            return {}
+        query_mode = 'llm-query' if rewritten and sanitize_search_query(rewritten) else 'safe-query-fallback'
+        event('web_search.results', category=category, count=len(sources), query_mode=query_mode)
+        return {'sources': sources, 'mode': f'web ({query_mode})'}
+
+    @traced('llm.search_query')
+    def rewrite_search_query(self, query, category, context=None):
+        provider, provider_config = configured_provider(self.settings)
+        self.provider, self.provider_config = provider, provider_config
+        if provider.name == 'local' or provider_config is None:
+            return None
+        quota_key = f'quota:ai:{provider.name}:' + date.today().isoformat()
+        if not self.store.consume(quota_key, provider_config.daily_limit, 86400):
+            return None
+        try:
+            return provider.rewrite_search_query(query, category, context)
+        except (LLMUnavailable, PoolUnavailable):
+            return None
+        except Exception as error:
+            log.warning('Search query rewriting unavailable: %s', type(error).__name__)
+            return None
 
     @traced('llm.evidence_selection')
     def select_evidence(self, topic, sources):
@@ -249,15 +302,16 @@ class ChatGraph:
 
         topic = state.get('topic')
         if sources:
+            web_sources = any(source.get('web') for source in sources)
             sources_selected, selected = self.select_evidence(topic, sources)
             citations = [citation(source, i + 1) for i, source in enumerate(sources_selected)]
             text = self.generate_answer(query, category, sources_selected, state.get('context', []))
             if text is not None:
                 generated = True
-                evidence = 'supported'
-            elif category == 'hospital' or self.provider.name == 'local':
-                text = _format_local_response(query, citations, self.settings.hospital_name)
-                evidence = 'supported'
+                evidence = 'limited' if web_sources else 'supported'
+            elif category == 'hospital' or web_sources or self.provider.name == 'local':
+                text = _format_local_response(query, citations, self.settings.hospital_name, web_sources)
+                evidence = 'limited' if web_sources else 'supported'
 
         # If not answered by sources and category is health, call AI general answer
         if not text and category == 'health':
@@ -267,8 +321,9 @@ class ChatGraph:
                 evidence = 'general'
                 citations = []
             elif sources and self.provider.name == 'local':
-                text = _format_local_response(query, citations, self.settings.hospital_name)
-                evidence = 'supported'
+                web_sources = any(source.get('web') for source in sources)
+                text = _format_local_response(query, citations, self.settings.hospital_name, web_sources)
+                evidence = 'limited' if web_sources else 'supported'
             else:
                 text = ('I am here to help with health questions. For this specific symptom or condition, '
                         'I recommend consulting a qualified healthcare professional.')

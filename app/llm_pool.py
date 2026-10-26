@@ -50,6 +50,9 @@ class LLMPool:
     def summarize(self, timeline):
         return self._call('summarize', timeline)
 
+    def rewrite_search_query(self, query, category, context=None):
+        return self._call('rewrite_search_query', query, category, context)
+
     @classmethod
     def from_settings(cls, settings):
         from app.providers import GeminiProvider, OpenAICompatibleProvider, ProviderConfig
